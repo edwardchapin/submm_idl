@@ -4,8 +4,7 @@
 ; Calculate the "matched filter" for identifying point-sources in a
 ; map with instrumental (white) and point-source confusion noise
 ; components. For a complete description of this algorithm, see
-; Appendix A in Chapin et al. 2010, MNRAS, submitted,
-; arXiv:1003.2647.
+; Appendix A in Chapin et al. (2011) MNRAS 411 505.
 ;
 ; If a signal and noise map are supplied this routine can be used to
 ; do the noise-weighted cross-correlation with the matched filter. If
