@@ -175,6 +175,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
   m_x = round(m_x[m_onmap[mkeep]])
   m_y = round(m_y[m_onmap[mkeep]])
+  if keyword_set(properties) then prop = properties[m_onmap[mkeep],*]
 
   n_p = n_elements(p_x)     ; number of primary sources on mask
   n_m = n_elements(m_x)     ; number of matching sources on mask
@@ -468,38 +469,46 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
       ; for the background and prior masks
       for j=0, propdims[i]-1 do begin
         ind = where( bgmask[m_x,m_y] and $
-                     (properties[*,i] ge prop_bins[j]) and $
-                     (properties[*,i] lt prop_bins[j+1]) )
+                     (prop[*,i] ge prop_bins[j]) and $
+                     (prop[*,i] lt prop_bins[j+1]) )
         if ind[0] ne -1 then begin
           prop_bgcounts[j] = n_elements(ind)
           prop_bgcounts_err[j] = sqrt(prop_bgcounts[j])
         endif
 
         ind = where( pmask[m_x,m_y] and $
-                     (properties[*,i] ge prop_bins[j]) and $
-                     (properties[*,i] lt prop_bins[j+1]) )
+                     (prop[*,i] ge prop_bins[j]) and $
+                     (prop[*,i] lt prop_bins[j+1]) )
         if ind[0] ne -1 then begin
           prop_fgcounts[j] = n_elements(ind)
           prop_fgcounts_err[j] = sqrt(prop_fgcounts[j])
         endif
       endfor
+
+      ; Now work out the prior as the excess in each bin
+      expect_p = (prop_bgcounts/area_bg) * area_p
+      expect_p_err = (prop_bgcounts_err/prop_bgcounts) * expect_p
+
+      prior_fg = prop_fgcounts - expect_p
+      prior_fg_err = sqrt( prop_fgcounts_err^2d + expect_p_err^2d )
+
+      ; normalize the foreground and background distributions
+      scale = total(prior_fg*dp)
+      prior_fg = prior_fg / scale
+      prior_fg_err = prior_fg_err / scale
+
+      scale = total(prop_bgcounts*dp)
+      prior_bg = prop_bgcounts / scale
+      prior_bg_err = prop_bgcounts_err / scale
+
+      window,6+i
+      plot, prop_bincen, prior_bg, linestyle=2, charsize=1.5, $
+            ytitle='Probability Density'
+      errplot, prop_bincen, prior_bg-prior_bg_err, prior_bg+prior_bg_err
+
+      oplot, prop_bincen, prior_fg
+      errplot, prop_bincen, prior_fg-prior_fg_err, prior_fg+prior_fg_err
     endfor
-
-    ; Now work out the prior as the excess in each bin
-    expect_p = (prop_bgcounts/area_bg) * area_p
-    expect_p_err = (prop_bgcounts_err/prop_bgcounts) * expect_p
-
-    prior_fg = prop_fgcounts - expect_p
-    prior_fg_err = sqrt( prop_fgcounts_err^2d + expect_p_err^2d )
-
-    ; normalize the foreground and background distributions
-    scale = total(prior_fg*dp)
-    prior_fg = prior_fg / scale
-    prior_fg_err = prior_fg_err / scale
-
-    scale = total(prop_bgcounts*dp)
-    prior_bg = prop_bgcounts / scale
-    prior_bg_err = prop_bgcounts_err / scale
 
   endif
 
