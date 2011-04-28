@@ -29,11 +29,14 @@
 ;
 ; Dependencies:
 ;
+;   IDL astro library: (http://idlastro.gsfc.nasa.gov/)
+;
 ; Authors:
 ;   Edward Chapin, echapin@phas.ubc.ca (EC)
 ;
 ; History:
 ;   27APR2011: Initial committed version (EC)
+;   28APR2011: Switch to IDL astro libs for coordinate conversion (EC)
 ;
 ;------------------------------------------------------------------------------
 
@@ -66,14 +69,10 @@ pro cat_pix, lon, $           ; Lon. in degrees
 
   if keyword_set(pix2cat) then begin
     ; convert x,y --> lon, lat
-    lon_off  = (x - (CRPIX1-1))*CDELT1
-    lat_off = (y - (CRPIX2-1))*CDELT2
-    tan2radec, CRVAL1, CRVAL2, lon_off, lat_off, lon, lat
+    xyad, header, x, y, lon2, lat2
   endif else begin
     ; convert lon, lat --> x,y
-    radec2tan, CRVAL1, CRVAL2, lon, lat, lon_off, lat_off
-    x = lon_off/CDELT1 + CRPIX1 - 1
-    y = lat_off/CDELT2 + CRPIX2 - 1
+    adxy, header, lon, lat, x, y
   endelse
 
   pixres = abs(CDELT1)
