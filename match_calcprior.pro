@@ -32,9 +32,11 @@
 ;   properties = N primary catalogue entries X M properties for priors
 ;   propbins   = M X 2: bin_min, delta_bin for binned priors arrays
 ;   propdims   = M array lengths for output binned priors arrays
-
+;   p_ind      = index to subset of primaries to analyze after mask made
 ;
 ; Optional Keyword Outputs:
+;
+;   lr_sr      = 99% search radius for LR
 ;
 ; Dependencies:
 ;
@@ -48,6 +50,7 @@
 ;   27APR2011: Initial version -- only radial dist, and no outputs yet (EC)
 ;   28APR2011: Add showplot, rprior, noradial
 ;              Add properties, propbins, propdims (EC)
+;   29APR2011: Check all where statements generate error messages (EC)
 ;
 ;------------------------------------------------------------------------------
 
@@ -99,8 +102,9 @@ end
 
 pro match_calcprior, p_ra, p_dec, m_ra, m_dec, m_mask, maskhead, rmax, nr, $
                      showplot=showplot, $
-                     rprior=rprior, noradial=noradial, $
-                     properties=properties, propbins=propbins, propdims=propdims
+                     rprior=rprior, noradial=noradial, properties=properties, $
+                     propbins=propbins, propdims=propdims, $
+                     p_ind=p_ind
 
 common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
@@ -112,6 +116,11 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
   ; We also has a border that is rmax  in size around the edges to avoid
   ; wraparound problems when we make masks.
   ind = where(m_mask)
+  if ind[0] eq -1 then begin
+    print, "Error: problem finding good regions in m_mask"
+    stop
+  endif
+
   width = n_elements(m_mask[*,0])
   height = n_elements(m_mask[0,*])
   xmask = ind mod width
@@ -147,7 +156,13 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
   pixres = sxpar( header, "CD1_1")
   if pixres eq 0 then pixres = sxpar( header, "CDELT1" )
   pixres = abs( pixres )*3600d                   ; arcsec/pixel
-  area = n_elements( where(mask) ) * pixres^2d   ; area in arcsec^2
+
+  ind = where(mask)
+  if ind[0] eq -1 then begin
+    print, "Error: no good pixels in mask"
+    stop
+  endif
+  area = n_elements( ind ) * pixres^2d   ; area in arcsec^2
 
   ; project the catalogues on to the mask, and determine the x, y positions
   ; of sources that land within it
@@ -157,8 +172,18 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
   p_onmap = where( (p_x ge 0) and (p_x lt nx) and $
                    (p_y ge 0) and (p_y lt ny) )
 
+  if p_onmap[0] eq -1 then begin
+    print, "Error: no primary sources with valid map locations"
+    stop
+  endif
+
   m_onmap = where( (m_x ge 0) and (m_x lt nx) and $
                    (m_y ge 0) and (m_y lt ny) )
+
+  if p_onmap[0] eq -1 then begin
+    print, "Error: no matching sources with valid map locations"
+    stop
+  endif
 
   pkeep = -1 & mkeep = -1
 
@@ -195,6 +220,11 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
   ; the maximum search radius from _only one_ primary source
 
   ind = where( d le rmax )
+  if ind[0] eq -1 then begin
+    print, "Error: requested circle is too small"
+    stop
+  endif
+
   circle = intarr(nx,ny)
   circle[ind] = 1
 
@@ -205,10 +235,18 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
   temp = round(double(fft(fft(circle,1)*fft(p_delta,1),-1))) ; convolve
 
   fg = where( (temp eq 1) and (mask) )
+  if fg[0] eq -1 then begin
+    print, "Error: foreground mask is empty"
+    stop
+  endif
   fgmask = intarr(nx,ny)
   fgmask[fg] = 1
 
   bg = where( (temp eq 0) and (mask) )
+  if bg[0] eq -1 then begin
+    print, "Error: background mask is empty"
+    stop
+  endif
   bgmask = intarr(nx,ny)
   bgmask[bg] = 1
 
@@ -229,9 +267,14 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
   endif
 
   ; calculate area and surface density + Poisson error, of sources in bg mask
-  area_bg = n_elements(where(bgmask)) * pixres^2d                  ; arcsec^2
-  n_bg = n_elements(where(bgmask[m_x,m_y]))
-  rho_bg = n_bg / area_bg            ; #/arcsec^-2
+  area_bg = n_elements(bg) * pixres^2d             ; arcsec^2
+  ind = where( bgmask[m_x,m_y] )
+  if ind[0] eq -1 then begin
+    print, "Error: no matching sources land on background mask"
+    stop
+  endif
+  n_bg = n_elements(ind)
+  rho_bg = n_bg / area_bg                          ; #/arcsec^-2
   rho_bg_err = sqrt(n_bg) / area_bg
 
   ; Calculate bins of search radius
@@ -262,6 +305,11 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     for i=0, nr-1 do begin
 
       ind = where( (d ge all_r[i]) and (d lt all_r[i+1]) )
+      if ind[0] eq -1 then begin
+        print, "Error: no pixels in annulus"
+        stop
+      endif
+
       annulus = intarr(nx, ny)
       annulus[ind] = 1
 
@@ -275,9 +323,19 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
       ; To do this we count the pixels in amask before and after
       ; applying fgmask, and multiply n_p by that ratio.
 
-      n_full = double(n_elements(where(amask)))
+      ind = where(amask)
+      if ind[0] eq -1 then begin
+        print, "Error: no pixels in annulus mask"
+        stop
+      endif
+      n_full = double(n_elements(ind))
       amask = amask * fgmask
-      n_clipped = double(n_elements(where(amask)))
+      ind = where(amask)
+      if ind[0] eq -1 then begin
+        print, "Error: no pixels in foreground-clipped annulus mask"
+        stop
+      endif
+      n_clipped = double(n_elements(ind))
 
       n_p_eff = (n_clipped / n_full) * n_p
 
@@ -301,7 +359,11 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
       endif
 
       ; how many were expected?
-      expect[i] = n_elements(where(amask))*pixres^2d * rho_bg
+      ind = where(amask)
+      if ind[0] eq -1 then begin
+        print, "Error: no pixels in annulus mask"
+      endif
+      expect[i] = n_elements(ind)*pixres^2d * rho_bg
       expect_err[i] = (rho_bg_err/rho_bg)*expect[i]
 
       ; what is the average excess given effective number of sources?
@@ -323,6 +385,10 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     ; fit rayleigh distribution to excess counts
     scale_guess = total(excess)
     ind = (where(excess eq max(excess)))[0]
+    if ind[0] eq -1 then begin
+      print, "Error: error finding guess sigma for Rayleigh distribution"
+      stop
+    endif
     sigma_guess = all_rcen[ind]
     m_init = [scale_guess,sigma_guess]
     m_scale = 0.3*m_init
@@ -406,8 +472,11 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     ; other priors (assuming that they are uncorrelated with distance)
 
     cum_snr = cumexcess / cumexcess_err
-    maxind = where( cum_snr eq max(cum_snr) )
-
+    maxind = (where( cum_snr eq max(cum_snr) ))[0]
+    if maxind[0] eq -1 then begin
+      print, "Error: couldn't find max SNR in cumulative radial distribution"
+      stop
+    endif
     print, "Best SNR at search radius of " + $
            string(all_rcen[maxind],format='(F5.1)') + " arcsec"
   endif else begin
@@ -415,6 +484,10 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
     maxind = where( all_rcen le rprior )
     maxind = (maxind[n_elements(maxind)-1])[0]
+    if maxind[0] eq -1 then begin
+      print, "Error: couldn't find radial bin matching rprior"
+      stop
+    endif
 
     print, "Will measure priors based on supplied properties using " + $
            "search radius of ", $
@@ -432,11 +505,19 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     ; the primary catalogue positions, but also on the foreground mask
 
     ind = where( d lt all_r[maxind+1] )
+    if ind[0] eq -1 then begin
+      print, "Error: region for prior calculation is empty (too small?)"
+      stop
+    endif
     circle = intarr(nx,ny)
     circle[ind] = 1
 
     pmask = round(double(fft(fft(circle,1)*fft(p_delta,1),-1))) ; convolve
     ind = where(pmask and fgmask)
+    if ind[0] eq -1 then begin
+      print, "Error: prior mask is empty"
+      stop
+    endif
     pmask = pmask*0
     pmask[ind] = 1
     area_p = n_elements(where(pmask)) * pixres^2d ; arcsec^2
