@@ -28,15 +28,27 @@
 ;
 ;   showplot   = If set, show plots to depict progress
 ;   rprior     = Override internally-estimate ideal search radius for priors
+;   avmatch    = use this value if rprior set (see Optional Keyword Outputs)
+;   sigma_r    = use this value if rprior set (see Optional Keyword Outputs)
 ;   noradial   = If set, and rprior set, skip radial distribution measurement
 ;   properties = N primary catalogue entries X M properties for priors
 ;   propbins   = M X 2: bin_min, delta_bin for binned priors arrays
 ;   propdims   = M array lengths for output binned priors arrays
+;   proplabels = array of string labels for each property
 ;   p_ind      = index to subset of primaries to analyze after mask made
 ;
 ; Optional Keyword Outputs:
 ;
 ;   lr_sr      = 99% search radius for LR
+;   p_bincen   = pointer array to bin centres for each property prior
+;   p_fg       = pointer array to foreground (match) priors for each property
+;   p_fg_err   = pointer array to errors in p_fg
+;   p_bg       = pointer array to background priors for each property
+;   p_bg_err   = pointer array to errors in p_bg
+;   avmatch    = average number of matches to primaries expected
+;   sigma_r    = sigma for Rayleigh radial distribution of matches
+;   q          = match prior distribution (integrates to avmatch)
+;   bdist      = background number density per arcsec^2
 ;
 ; Dependencies:
 ;
@@ -51,6 +63,7 @@
 ;   28APR2011: Add showplot, rprior, noradial
 ;              Add properties, propbins, propdims (EC)
 ;   29APR2011: Check all where statements generate error messages (EC)
+;   02MAY2011: Combine property priors independently and return (EC)
 ;
 ;------------------------------------------------------------------------------
 
@@ -62,8 +75,8 @@
 function fitrayleigh, m, model_excess=model_excess
 common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
-scale = m[0]
-sigma = m[1]
+avmatch = m[0]
+sigma_r = m[1]
 n = n_elements(all_rcen)
 
 nint = 10d
@@ -79,7 +92,7 @@ for i=0, n-1 do begin
   r = all_r[i]+int_cen
   dr = int_dbin
 
-  y = scale*total( (r/sigma^2d)*exp(-r^2d/(2d*sigma^2d))*dr )
+  y = avmatch*total( (r/sigma_r^2d)*exp(-r^2d/(2d*sigma_r^2d))*dr )
   all_y[i] = y
 
   chisq = chisq + (excess[i]-y)^2d/(excess_err[i])^2d
@@ -89,7 +102,7 @@ model_excess = all_y
 
 chisq = chisq/(n-2)
 
-if (sigma le 0) or (scale le 0) then chisq=1000d
+if (sigma_r le 0) or (avmatch le 0) then chisq=1000d
 
 ;print, chisq,':', m
 
@@ -104,7 +117,11 @@ pro match_calcprior, p_ra, p_dec, m_ra, m_dec, m_mask, maskhead, rmax, nr, $
                      showplot=showplot, $
                      rprior=rprior, noradial=noradial, properties=properties, $
                      propbins=propbins, propdims=propdims, $
-                     p_ind=p_ind
+                     proplabels=proplabels, p_ind=p_ind, $
+                     avmatch=avmatch, sigma_r=sigma_r, $
+                     p_bincen=p_bincen, p_fg=p_fg, p_fg_err=p_fg_err, $
+                     p_bg=p_bg, p_bg_err=p_bg_err, $
+                     q=q, bdist=bdist
 
 common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
@@ -274,7 +291,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     stop
   endif
   n_bg = n_elements(ind)
-  rho_bg = n_bg / area_bg                          ; #/arcsec^-2
+  rho_bg = n_bg / area_bg                       ; #/arcsec^-2
   rho_bg_err = sqrt(n_bg) / area_bg
 
   ; Calculate bins of search radius
@@ -282,7 +299,17 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
   all_dr = (all_r[1:nr] + all_r[0:nr-1])        ; bin widths
   all_rcen = (all_r[0:nr-1] + all_r[1:nr])/2.   ; bin centres
 
-  if (keyword_set(noradial) eq 0) and (keyword_set(rprior) eq 0) then begin
+  ; Check for step sizes that are smaller than map resolution. The 1.01
+  ; just covers cases where it's really close.
+  if all_dr[0]*1.01 lt pixres then begin
+    print, "Radial step size" + strcompress(all_dr[0]) + $
+           "(arcsec) is smaller than mask resolution " + $
+           strcompress(pixres) + "(arcsec)", $
+           "increase rmax, or decrease nr."
+    stop
+  endif
+
+  if (keyword_set(noradial) eq 0) then begin
 
     ; loop over search radius, and calculate a mask that has annuli
     ; centered over every primary catalogue position, and also lands
@@ -383,23 +410,24 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     endfor
 
     ; fit rayleigh distribution to excess counts
-    scale_guess = total(excess)
+    avmatch_guess = total(excess)
     ind = (where(excess eq max(excess)))[0]
     if ind[0] eq -1 then begin
       print, "Error: error finding guess sigma for Rayleigh distribution"
       stop
     endif
     sigma_guess = all_rcen[ind]
-    m_init = [scale_guess,sigma_guess]
+    m_init = [avmatch_guess,sigma_guess]
     m_scale = 0.3*m_init
-    fit = amoeba( 1d-6, function_name='fitrayleigh', p0=m_init, scale=m_scale )
-    a = fit[0]
-    sigma = fit[1]
+    fit = amoeba( 1d-6, function_name='fitrayleigh', p0=m_init, $\
+                  scale=m_scale )
+    avmatch = fit[0]
+    sigma_r = fit[1]
 
     ; high-res sampled version of the smooth distribution
     r_highres = loggen(0,rmax,100,/linear)
-    pdf = (r_highres/sigma^2d)*exp(-r_highres^2d/(2d*sigma^2d))
-    scale=a*(all_dr[0])         ; since total #'s given in each bin
+    pdf = (r_highres/sigma_r^2d)*exp(-r_highres^2d/(2d*sigma_r^2d))
+    scale=avmatch*(all_dr[0])         ; since total #'s given in each bin
 
     ; ...and also the low-resolution binned version from which chi^2 was
     ; calculated
@@ -415,8 +443,8 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
       oplot, r_highres, pdf*scale
       oplot, all_rcen, model_excess, psym=10
 
-      modelstr = '!4'+greek_sigma+'!3!Dr!n='+string(sigma,format='(F4.1)')
-      modelstr = modelstr+' E='+string(a,format='(F3.1)')+ $
+      modelstr = '!4'+greek_sigma+'!3!Dr!n='+string(sigma_r,format='(F4.1)')
+      modelstr = modelstr+' E='+string(avmatch,format='(F3.1)')+ $
                  ' !4'+greek_chi+'!3!u2!N='+string(chisq,format='(F3.1)')
 
       xyouts, 0.6, 0.85, modelstr, charsize=1.5, charthick=!p.thick, /normal
@@ -453,7 +481,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     cum_highres = pdf*0
     cumr_highres = r_highres - (r_highres[1]/2.)
     for i=0, n_elements(cum_highres)-1 do $
-      cum_highres[i] = total( a*pdf[0:i] )
+      cum_highres[i] = total( avmatch*pdf[0:i] )
 
     cum_highres = cum_highres * (r_highres[1]-r_highres[0])
 
@@ -481,7 +509,10 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
            string(all_rcen[maxind],format='(F5.1)') + " arcsec"
   endif else begin
     print, "Skipping measurement of radial offset distribution..."
+  endelse
 
+  ; use externally supplied rprior
+  if keyword_set( rprior ) then begin
     maxind = where( all_rcen le rprior )
     maxind = (maxind[n_elements(maxind)-1])[0]
     if maxind[0] eq -1 then begin
@@ -492,7 +523,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     print, "Will measure priors based on supplied properties using " + $
            "search radius of ", $
            string(all_rcen[maxind],format='(F5.1)') + " arcsec"
-  endelse
+  endif
 
   ; If properties supplied, work out other priors at best SNR radius
   if keyword_set(properties) and keyword_set(propbins) and $
@@ -530,9 +561,19 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
       xyouts, 0.02, 0.95, 'Prior Mask', charsize=1.5, /normal
     endif
 
+    ; set up arrays for storing the 1d marginalized prior probabilities
+    p_bincen = ptrarr(propdims)
+    p_fg = ptrarr(propdims)
+    p_fg_err = ptrarr(propdims)
+    p_bg = ptrarr(propdims)
+    p_bg_err = ptrarr(propdims)
+
+    ; loop over prior
     for i=0, nprop-1 do begin
-      print, "--- Calculating prior for property ", strcompress(i+1), $
-             " / ", strcompress(nprop), " ---"
+      if keyword_set(proplabels) then label = proplabels[i] $
+      else label = 'Property'+strcompress(i+1)
+
+      print, "--- Calculating priors for "+label
       ; Set up arrays for foreground and background counts as a function
       ; of property bins
       prop_bgcounts = dblarr( propdims[i] )
@@ -573,24 +614,115 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
       prior_fg = prop_fgcounts - expect_p
       prior_fg_err = sqrt( prop_fgcounts_err^2d + expect_p_err^2d )
 
-      ; normalize the foreground and background distributions
+      ; normalize the foreground and background distributions to calculate
+      ; probability densities for plotting
       scale = total(prior_fg*dp)
-      prior_fg = prior_fg / scale
-      prior_fg_err = prior_fg_err / scale
+      probability_fg = prior_fg / scale
+      probability_fg_err = prior_fg_err / scale
 
       scale = total(prop_bgcounts*dp)
-      prior_bg = prop_bgcounts / scale
-      prior_bg_err = prop_bgcounts_err / scale
+      probability_bg = prop_bgcounts / scale
+      probability_bg_err = prop_bgcounts_err / scale
 
-      window,6+i
-      plot, prop_bincen, prior_bg, linestyle=2, charsize=1.5, $
-            ytitle='Probability Density'
-      errplot, prop_bincen, prior_bg-prior_bg_err, prior_bg+prior_bg_err
+      ; store prior results for this property -- ensuring that we
+      ; have positive values by using smoothed values to help fill-in.
 
-      oplot, prop_bincen, prior_fg
-      errplot, prop_bincen, prior_fg-prior_fg_err, prior_fg+prior_fg_err
+      bg_smooth = smooth(probability_bg>0,5)
+      ind = where( probability_bg lt max(probability_bg)*0.01 )
+      if ind[0] ne -1 then probability_bg[ind] = bg_smooth[ind]
+      ind = where( probability_bg gt 0, complement=fix )
+      if fix[0] ne -1 then probability_bg[fix] = min(probability_bg[ind])
+      probability_bg = probability_bg / total(probability_bg*dp)
+
+      fg_smooth = smooth(probability_fg>0,5)
+      ind = where( probability_fg lt max(probability_fg)*0.01 )
+      if ind[0] ne -1 then probability_fg[ind] = fg_smooth[ind]
+      ind = where( probability_fg gt 0, complement=fix )
+      if fix[0] ne -1 then probability_fg[fix] = min(probability_fg[ind])
+      probability_fg = probability_fg / total(probability_fg*dp)
+
+      p_bincen[i] = ptr_new( prop_bincen )
+      p_fg[i] = ptr_new( probability_fg>0 )
+      p_fg_err[i] = ptr_new( probability_fg_err )
+      p_bg[i] = ptr_new( probability_bg>0 )
+      p_bg_err[i] = ptr_new( probability_bg_err )
+
+      ; plot the prior probability densities
+      if keyword_set(showplot) then begin
+        window,6+i
+
+        plot, prop_bincen, probability_bg, linestyle=2, charsize=1.5, $
+              ytitle='Probability Density', xtitle=label, $
+              yrange=[0,max([probability_bg,probability_fg])]
+        errplot, prop_bincen, probability_bg-probability_bg_err, $
+                 probability_bg+probability_bg_err
+
+        oplot, prop_bincen, probability_fg
+        errplot, prop_bincen, probability_fg-probability_fg_err, $
+                 probability_fg+probability_fg_err
+
+        plots, 0.8+[0,0.03], 0.9*[1.,1.], /normal
+        xyouts,0.84, 0.9, 'Matches', /normal
+
+        plots, 0.8+[0,0.03], 0.84*[1.,1.],linestyle=2, /normal
+        xyouts,0.84, 0.84, 'Background', /normal
+      endif
+
     endfor
 
+    ; Now we have calculated all of the individual priors. Assume that
+    ; they are uncorrelated and generate the joint foreground and
+    ; background priors in the format expected by cat_lr:
+    ;
+    ;   q is the distribution of matches, but with the absolute number
+    ;   of matches factored out (because that is stored in avmatch)
+    ;
+    ;   bdist is the background number density of sources per arcsec^2
+
+    q = dblarr(propdims)
+    bdist = dblarr(propdims)
+
+    ntot = n_elements(q)     ; total number of elements in q and bdist
+    coord = intarr(nprop)    ; coordinates along all dimensions
+    sublen = lonarr(nprop)   ; products of dims less than i
+
+    sublen[0] = 1
+    for i=1, nprop-1 do sublen[i] = sublen[i-1]*propdims[i-1]
+
+    for i=0l, ntot-1 do begin
+      ; turn this absolute index into coordinates along each of the axes
+      remainder = i
+      for j=0, nprop-1 do begin
+        coord[nprop-j-1] = remainder / sublen[nprop-j-1]
+        remainder = remainder mod sublen[nprop-j-1]
+      endfor
+
+      ; evaluate q and bdist at these coordinates
+      q[i] = 1.
+      for j=0, nprop-1 do q[i] = q[i] * (*p_fg[j])[coord[j]]
+
+      bdist[i] = 1.
+      for j=0, nprop-1 do bdist[i] = bdist[i] * (*p_bg[j])[coord[j]]
+    endfor
+
+    ; Finally, ensure that neither bdist nor q are zero anywhere, and
+    ; normalize q by avmatch
+    ind = where(q)
+    minq = min(q[ind])
+    ind = where( q eq 0)
+    q = q * avmatch
+
+    ind = where(bdist)
+    minbdist = min(bdist[ind])
+    ind = where( bdist eq 0)
   endif
+
+  ; free pointers if they are not being returned to the caller
+  if arg_present(p_bincen) eq 0 then ptr_free, p_bincen
+  if arg_present(p_fg) eq 0 then ptr_free, p_fg
+  if arg_present(p_fg_err) eq 0 then ptr_free, p_fg_err
+  if arg_present(p_bg) eq 0 then ptr_free, p_bg
+  if arg_present(p_bg_err) eq 0 then ptr_free, p_bg_err
+
 
 end
