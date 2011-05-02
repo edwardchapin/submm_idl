@@ -706,7 +706,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     endfor
 
     ; Finally, ensure that neither bdist nor q are zero anywhere, and
-    ; normalize q by avmatch
+    ; normalize q by avmatch, and bdist by rho_bg
     ind = where(q)
     minq = min(q[ind])
     ind = where( q eq 0)
@@ -715,6 +715,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     ind = where(bdist)
     minbdist = min(bdist[ind])
     ind = where( bdist eq 0)
+    bdist = bdist * rho_bg
   endif
 
   ; free pointers if they are not being returned to the caller
