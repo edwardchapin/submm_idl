@@ -674,8 +674,8 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     ; they are uncorrelated and generate the joint foreground and
     ; background priors in the format expected by cat_lr:
     ;
-    ;   q is the distribution of matches, but with the absolute number
-    ;   of matches factored out (because that is stored in avmatch)
+    ;   q is the distribution of matches, and it is normalized to integrate
+    ;   to avmatch
     ;
     ;   bdist is the background number density of sources per arcsec^2
 
