@@ -2,8 +2,8 @@
 ; cat_lr: Find catalogue matches using likelihood ratios
 ;
 ; This routine is based on Sutherland & Saunders (1992) MNRAS 259 413.
-; n is the background differential counts as a function of M
-; properties.  q is the prior distribution for matches as a function
+; 'bdist' is the background differential counts as a function of M
+; properties. 'q' is the prior distribution for matches as a function
 ; of M properties.  In both cases, these arrays are estimates of the
 ; densities, so that to obtain absolute numbers of sources, the sum of
 ; these times the M-dimensional volume element must be used. Also note
@@ -13,25 +13,25 @@
 ;
 ; Required Inputs:
 ;
-;   ra       = array of input source right ascensions in hours
-;   dec      = "          "     "    declinations     in degrees
-;   catra    = array of matching catalogue RA's in hours
-;   catdec   =  "         "     "          DEC's in degrees
-;   sr       = maximum search radius (arcsec)
-;   maxmatch = maximum number of matches per source
-;   sigma    = sigma for positional uncertainties (arcsec)
-;   catvals  = flux density, colour etc. (N cat entries x M properties)
-;   q        = prior dist      of M properties. (M axes of lengths dims)
-;   bdist    = background dist of M properties. (M axes of lengths dims)
-;   dims     = length of each  of the M dimensions
-;   bins     = M x 2: bin_min, dbin for each dimensions
+;   ra         = array of input source right ascensions in hours
+;   dec        = "          "     "    declinations     in degrees
+;   catra      = array of matching catalogue RA's in hours
+;   catdec     =  "         "     "          DEC's in degrees
+;   sr         = maximum search radius (arcsec)
+;   maxmatch   = maximum number of matches per source
+;   sigma      = sigma for positional uncertainties (arcsec)
+;   properties = flux density, colour etc. (N cat entries x M properties)
+;   q          = prior match dist of M properties. (M axes of lengths dims)
+;   bdist      = prior background dist of M properties (M axes of lengths dims)
+;   dims       = length of each  of the M dimensions
+;   bins       = M x 2: bin_min, dbin for each dimension
 ;
 ; Optional Keyword Outputs:
 ;
-;   matches  = N x maxmatch x 4 array giving index into matching
-;              cat/distance/LR/reliability. The indices are -1 in each
-;              index slot where no match found. Error message generated if
-;              maxmatch too small.
+;   matches    = N x maxmatch x 4 array giving index into matching
+;                cat/distance/LR/reliability. The indices are -1 in each
+;                index slot where no match found. Error message generated if
+;                maxmatch too small.
 ;
 ; Authors:
 ;   Edward Chapin, echapin@phas.ubc.ca (EC)
@@ -42,7 +42,7 @@
 ;------------------------------------------------------------------------------
 
 pro cat_lr, ra, dec, catra, catdec, sr, maxmatch, sigma, $
-              catvals, q, bdist, dims, bins, matches=matches
+              properties, q, bdist, dims, bins, matches=matches
 
   ; dimensions of arrays
   n = n_elements(ra)             ; number of objects to find counterparts for
@@ -73,7 +73,7 @@ pro cat_lr, ra, dec, catra, catdec, sr, maxmatch, sigma, $
       ; Calculate likelihood ratios for each object
       for j=0, nmatch-1 do begin
 
-        vals = catvals[ind[j],*]     ; properties of this catalogue entry
+        vals = properties[ind[j],*]     ; properties of this catalogue entry
 
         ; figure out which bin of q and n the current source lands in
         which = intarr(ndims) ; multi-dimensional index
