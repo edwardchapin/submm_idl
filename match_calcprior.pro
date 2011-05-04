@@ -611,11 +611,10 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
     ; loop over prior
     for i=0, nprop-1 do begin
-      if keyword_set(proplabels) then BEGIN
-         IF N_ELEMENTS(proplabels) GT 1 THEN label = proplabels[i] ELSE $
-            label = proplabels
-      ENDIF else label = 'Property'+strcompress(i+1)
-
+       if keyword_set(proplabels) then $
+          label = proplabels[i] else $
+             label = 'Property'+strcompress(i+1)
+    
       MESSAGE, "--- Calculating priors for "+label,/INFORMATIONAL
       ; Set up arrays for foreground and background counts as a function
       ; of property bins
@@ -625,21 +624,13 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
       prop_fgcounts_err = dblarr( propdims[i] )
 
       
-      IF nprop EQ 1 THEN BEGIN
-         prop_bins = loggen( propbins[0], $
-                             propbins[0]+propbins[1]*(propdims+1), $
-                             propdims+1, /linear )
-         prop_bincen = (prop_bins[0:propdims-1] + prop_bins[1:propdims])/2.
-         dp = propbins[1]
-      ENDIF ELSE BEGIN
-         prop_bins = loggen( propbins[i,0], $
-                             propbins[i,0]+propbins[i,1]*(propdims[i]+1), $
-                             propdims[i]+1, /linear )
-         prop_bincen = (prop_bins[0:propdims[i]-1] + $
-                        prop_bins[1:propdims[i]])/2.
-         dp = propbins[i,1]
-      ENDELSE
 
+      prop_bins = loggen( propbins[i,0], $
+                          propbins[i,0]+propbins[i,1]*(propdims[i]+1), $
+                          propdims[i]+1, /linear )
+      prop_bincen = (prop_bins[0:propdims[i]-1] + $
+                     prop_bins[1:propdims[i]])/2.
+      dp = propbins[i,1]
 
       ; loop over bins and count sources with properties in range
       ; for the background and prior masks
