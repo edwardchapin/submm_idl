@@ -65,11 +65,12 @@
 ;
 ; History:
 ;   27APR2011: Initial version -- only radial dist, and no outputs yet (EC)
-;   28APR2011: Add showplot, rprior, noradial
-;              Add properties, propbins, propdims (EC)
+;   28APR2011: Add showplot, rprior, noradial (EC)
+;              Add properties, propbins, propdims
 ;   29APR2011: Check all where statements generate error messages (EC)
 ;   02MAY2011: Combine property priors independently and return (EC)
 ;              Add suggest_rmax
+;              Implement p_ind
 ;   02MAY2011: Fixed a minor bug for when only one prior is present,
 ;              cleaned up some of the informational i/o to allow for
 ;              'verbose' and 'postscript' keywords. (MZ)
@@ -283,6 +284,44 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
   endif
   fgmask = intarr(nx,ny)
   fgmask[fg] = 1
+
+  ; now that we have fgmask we can look at a subset of the primary positions
+  ; if p_ind was supplied
+  if keyword_set(p_ind) then begin
+    ; re-project subset of positions on to map
+    cat_pix, p_ra[p_ind], p_dec[p_ind], p_x, p_y, header
+
+    p_onmap = where( (p_x ge 0) and (p_x lt nx) and $
+                     (p_y ge 0) and (p_y lt ny) )
+
+    if p_onmap[0] eq -1 then begin
+      errmsg="Error: no primary sources within p_ind with valid map locations"
+      IF verbose THEN MESSAGE,errmsg
+      RETURN
+    endif
+
+    if p_onmap[0] eq -1 then begin
+      errmsg="Error: no matching sources within p_ind with valid map locations"
+      IF verbose THEN MESSAGE,errmsg
+      RETURN
+    endif
+
+    pkeep = -1
+
+    if p_onmap[0] ne -1 then pkeep = where( mask[p_x[p_onmap],p_y[p_onmap]] )
+
+    if pkeep[0] eq -1 then begin
+      errmsg="Error: no primary catalogue source within p_ind lands on mask"
+      IF verbose THEN MESSAGE,errmsg
+      RETURN
+    endif
+
+    p_x = round(p_x[p_onmap[pkeep]])
+    p_y = round(p_y[p_onmap[pkeep]])
+    n_p = n_elements(p_x)       ; new number of primary sources
+    p_delta = dblarr(nx,ny)
+    for i=0, n_p-1 do p_delta[p_x[i],p_y[i]] = p_delta[p_x[i],p_y[i]] + 1
+  endif
 
   bg = where( (temp eq 0) and (mask) )
   if bg[0] eq -1 then begin
