@@ -36,6 +36,8 @@
 ;   propdims   = M array lengths for output binned priors arrays
 ;   proplabels = array of string labels for each property
 ;   p_ind      = index to subset of primaries to analyze after mask made
+;   postscript = disables plotting to x in case you're dumping to ps instead
+;   verbose    = controls verbosity (0 or 1, default 1)
 ;
 ; Optional Keyword Outputs:
 ;
@@ -49,6 +51,8 @@
 ;   sigma_r    = sigma for Rayleigh radial distribution of matches
 ;   q          = match prior distribution (integrates to avmatch)
 ;   bdist      = background number density per arcsec^2
+;   success    = success flag (1=success)
+;   errmsg     = string containing error message if abnormal exit
 ;
 ; Dependencies:
 ;
@@ -64,6 +68,9 @@
 ;              Add properties, propbins, propdims (EC)
 ;   29APR2011: Check all where statements generate error messages (EC)
 ;   02MAY2011: Combine property priors independently and return (EC)
+;   02MAY2011: Fixed a minor bug for when only one prior is present, 
+;              cleaned up some of the informational i/o to allow for 
+;              'verbose' and 'postscript' keywords. (MZ)
 ;
 ;------------------------------------------------------------------------------
 
@@ -121,10 +128,19 @@ pro match_calcprior, p_ra, p_dec, m_ra, m_dec, m_mask, maskhead, rmax, nr, $
                      avmatch=avmatch, sigma_r=sigma_r, $
                      p_bincen=p_bincen, p_fg=p_fg, p_fg_err=p_fg_err, $
                      p_bg=p_bg, p_bg_err=p_bg_err, $
-                     q=q, bdist=bdist
+                     q=q, bdist=bdist, $
+                     POSTSCRIPT=postscript,$
+                     VERBOSE=verbose,SUCCESS=success,$
+                     ERRMSG=errmsg
 
 common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
+  COMPILE_OPT IDL2, STRICTARRSUBS
+  success = 0b
+
+  IF ~(N_ELEMENTS(verbose)) THEN verbose=1 ELSE verbose=verbose
+  IF ~(N_ELEMENTS(postscript)) THEN postscript=0 ELSE postscript=postscript
+  
   ; characters in greek font set
   greek_sigma = 'r'
   greek_chi = 'v'
@@ -134,8 +150,9 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
   ; wraparound problems when we make masks.
   ind = where(m_mask)
   if ind[0] eq -1 then begin
-    print, "Error: problem finding good regions in m_mask"
-    stop
+    errmsg="Error: problem finding good regions in m_mask"
+    IF verbose THEN MESSAGE,errmsg,/INFORMATIONAL
+    RETURN
   endif
 
   width = n_elements(m_mask[*,0])
@@ -176,8 +193,9 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
   ind = where(mask)
   if ind[0] eq -1 then begin
-    print, "Error: no good pixels in mask"
-    stop
+    errmsg = "Error: no good pixels in mask"
+    IF verbose THEN MESSAGE,errmsg
+    RETURN
   endif
   area = n_elements( ind ) * pixres^2d   ; area in arcsec^2
 
@@ -190,16 +208,18 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
                    (p_y ge 0) and (p_y lt ny) )
 
   if p_onmap[0] eq -1 then begin
-    print, "Error: no primary sources with valid map locations"
-    stop
+    errmsg="Error: no primary sources with valid map locations"
+    IF verbose THEN MESSAGE,errmsg
+    RETURN
   endif
 
   m_onmap = where( (m_x ge 0) and (m_x lt nx) and $
                    (m_y ge 0) and (m_y lt ny) )
 
   if p_onmap[0] eq -1 then begin
-    print, "Error: no matching sources with valid map locations"
-    stop
+    errmsg="Error: no matching sources with valid map locations"
+    IF verbose THEN MESSAGE,errmsg
+    RETURN
   endif
 
   pkeep = -1 & mkeep = -1
@@ -208,8 +228,9 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
   if m_onmap[0] ne -1 then mkeep = where( mask[m_x[m_onmap],m_y[m_onmap]] )
 
   if (pkeep[0] eq -1) or (mkeep[0] eq -1) then begin
-    print, "Error: either no primary or matching catalogue sources land on mask"
-    stop
+    errmsg="Error: either no primary or matching catalogue sources land on mask"
+    IF verbose THEN MESSAGE,errmsg
+    RETURN
   endif
 
   p_x = round(p_x[p_onmap[pkeep]])
@@ -238,8 +259,9 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
   ind = where( d le rmax )
   if ind[0] eq -1 then begin
-    print, "Error: requested circle is too small"
-    stop
+    errmsg="Error: requested circle is too small"
+    IF verbose THEN MESSAGE,errmsg
+    RETURN
   endif
 
   circle = intarr(nx,ny)
@@ -253,30 +275,35 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
   fg = where( (temp eq 1) and (mask) )
   if fg[0] eq -1 then begin
-    print, "Error: foreground mask is empty"
-    stop
+    errmsg="Error: foreground mask is empty"
+    IF verbose THEN MESSAGE,errmsg
+    RETURN
   endif
   fgmask = intarr(nx,ny)
   fgmask[fg] = 1
 
   bg = where( (temp eq 0) and (mask) )
   if bg[0] eq -1 then begin
-    print, "Error: background mask is empty"
-    stop
+    errmsg="Error: background mask is empty"
+    IF verbose THEN MESSAGE,errmsg
+    RETURN
   endif
   bgmask = intarr(nx,ny)
   bgmask[bg] = 1
 
   if keyword_set(showplot) then begin
-    set_plot,'x'
-    window, 0
+     IF ~postscript THEN BEGIN
+        set_plot,'x'
+        window, 0
+     ENDIF
     tvscale, bgmask, /keep, /noint
     xyouts, 0.02, 0.95, 'Background Mask', charsize=1.5, charthick=3.0, $
             /normal, color=255
     xyouts, 0.02, 0.95, 'Background Mask', charsize=1.5, /normal
 
-
-    window, 1
+    IF ~postscript THEN BEGIN
+       window, 1
+    ENDIF
     tvscale, fgmask, /keep, /noint
     xyouts, 0.02, 0.95, 'Foreground Mask', charsize=1.5, charthick=3.0, $
             /normal, color=255
@@ -287,8 +314,9 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
   area_bg = n_elements(bg) * pixres^2d             ; arcsec^2
   ind = where( bgmask[m_x,m_y] )
   if ind[0] eq -1 then begin
-    print, "Error: no matching sources land on background mask"
-    stop
+    errmsg="Error: no matching sources land on background mask"
+    IF verbose THEN MESSAGE,errmsg
+    RETURN
   endif
   n_bg = n_elements(ind)
   rho_bg = n_bg / area_bg                       ; #/arcsec^-2
@@ -302,11 +330,12 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
   ; Check for step sizes that are smaller than map resolution. The 1.01
   ; just covers cases where it's really close.
   if all_dr[0]*1.01 lt pixres then begin
-    print, "Radial step size" + strcompress(all_dr[0]) + $
+    errmsg = "Radial step size" + strcompress(all_dr[0]) + $
            "(arcsec) is smaller than mask resolution " + $
-           strcompress(pixres) + "(arcsec)", $
+           strcompress(pixres) + "(arcsec)" + $
            "increase rmax, or decrease nr."
-    stop
+    IF verbose THEN MESSAGE,errmsg
+    RETURN
   endif
 
   if (keyword_set(noradial) eq 0) then begin
@@ -327,14 +356,15 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     all_n_full = dblarr(nr)
     all_n_clipped = dblarr(nr)
 
-    if keyword_set(showplot) then window, 2
+    if keyword_set(showplot) and ~postscript then window, 2
 
     for i=0, nr-1 do begin
 
       ind = where( (d ge all_r[i]) and (d lt all_r[i+1]) )
       if ind[0] eq -1 then begin
-        print, "Error: no pixels in annulus"
-        stop
+        errmsg="Error: no pixels in annulus"
+        IF verbose THEN MESSAGE,errmsg
+        RETURN
       endif
 
       annulus = intarr(nx, ny)
@@ -352,15 +382,16 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
       ind = where(amask)
       if ind[0] eq -1 then begin
-        print, "Error: no pixels in annulus mask"
-        stop
+        errmsg="Error: no pixels in annulus mask"
+        IF verbose THEN MESSAGE,errmsg
+        RETURN
       endif
       n_full = double(n_elements(ind))
       amask = amask * fgmask
       ind = where(amask)
       if ind[0] eq -1 then begin
-        print, "Error: no pixels in foreground-clipped annulus mask"
-        stop
+        errmsg="Error: no pixels in foreground-clipped annulus mask"
+        IF verbose THEN MESSAGE,errmsg
       endif
       n_clipped = double(n_elements(ind))
 
@@ -388,7 +419,9 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
       ; how many were expected?
       ind = where(amask)
       if ind[0] eq -1 then begin
-        print, "Error: no pixels in annulus mask"
+        errmsg,"Error: no pixels in annulus mask"
+        IF verbose THEN MESSAGE,errmsg
+        RETURN
       endif
       expect[i] = n_elements(ind)*pixres^2d * rho_bg
       expect_err[i] = (rho_bg_err/rho_bg)*expect[i]
@@ -401,11 +434,11 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
       effstr = " effective sources: " + string( n_p_eff, format='(F5.1)' )  + $
                ' / ' + strcompress(n_p,/remove_all)
 
-      print, 'annulus:'+ $
-             string(all_r[i],format='(I3)') + '--' + $
-             string(all_r[i+1],format='(I3)') + effstr + ' excess=' + $
-             string(excess[i],format='(F5.2)') + ' +/- ' + $
-             string(excess_err[i],format='(F5.2)')
+      IF verbose THEN MESSAGE, 'Annulus:'+ $
+         string(all_r[i],format='(I3)') + '--' + $
+         string(all_r[i+1],format='(I3)') + effstr + ' excess=' + $
+         string(excess[i],format='(F5.2)') + ' +/- ' + $
+         string(excess_err[i],format='(F5.2)'),/INFORMATIONAL
 
     endfor
 
@@ -413,8 +446,9 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     avmatch_guess = total(excess)
     ind = (where(excess eq max(excess)))[0]
     if ind[0] eq -1 then begin
-      print, "Error: error finding guess sigma for Rayleigh distribution"
-      stop
+      errmsg="Error: error finding guess sigma for Rayleigh distribution"
+      IF verbose THEN MESSAGE,errmsg
+      RETURN
     endif
     sigma_guess = all_rcen[ind]
     m_init = [avmatch_guess,sigma_guess]
@@ -434,7 +468,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     chisq = fitrayleigh(fit,model_excess=model_excess)
 
     if keyword_set(showplot) then begin
-      window,3
+       IF ~postscript THEN window,3
       plot, all_rcen, excess, psym=5, xtitle='Search Radius (arcsec)', $
             ytitle='Excess / bin', xstyle=1, xrange=[0,rmax], $
             charsize=1.5
@@ -486,7 +520,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     cum_highres = cum_highres * (r_highres[1]-r_highres[0])
 
     if keyword_set(showplot) then begin
-      window, 4
+      IF ~postscript THEN window, 4
       plot, cumr, cumexcess, psym=5, xtitle='Search Radius (arcsec)', $
             ytitle='Cumulative Excess (<R)', charsize=1.5, $
             xrange=[0,rmax], xstyle=1
@@ -502,13 +536,16 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     cum_snr = cumexcess / cumexcess_err
     maxind = (where( cum_snr eq max(cum_snr) ))[0]
     if maxind[0] eq -1 then begin
-      print, "Error: couldn't find max SNR in cumulative radial distribution"
-      stop
+      errmsg="Error: couldn't find max SNR in cumulative radial distribution"
+      IF verbose THEN MESSAGE,errmsg
+      RETURN
     endif
-    print, "Best SNR at search radius of " + $
-           string(all_rcen[maxind],format='(F5.1)') + " arcsec"
+    MESSAGE, "Best SNR at search radius of " + $
+             string(all_rcen[maxind],format='(F5.1)') + " arcsec",$
+             /INFORMATIONAL
   endif else begin
-    print, "Skipping measurement of radial offset distribution..."
+    MESSAGE,"Skipping measurement of radial offset distribution...",$
+            /INFORMATIONAL
   endelse
 
   ; use externally supplied rprior
@@ -516,13 +553,15 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     maxind = where( all_rcen le rprior )
     maxind = (maxind[n_elements(maxind)-1])[0]
     if maxind[0] eq -1 then begin
-      print, "Error: couldn't find radial bin matching rprior"
-      stop
+      errmsg="Error: couldn't find radial bin matching rprior"
+      IF verbose THEN MESSAGE,errmsg
+      RETURN
     endif
 
-    print, "Will measure priors based on supplied properties using " + $
-           "search radius of ", $
-           string(all_rcen[maxind],format='(F5.1)') + " arcsec"
+    MESSAGE,"Will measure priors based on supplied properties using " + $
+            "search radius of ", $
+            string(all_rcen[maxind],format='(F5.1)') + " arcsec",$
+            /INFORMATIONAL
   endif
 
   ; If properties supplied, work out other priors at best SNR radius
@@ -537,8 +576,9 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
     ind = where( d lt all_r[maxind+1] )
     if ind[0] eq -1 then begin
-      print, "Error: region for prior calculation is empty (too small?)"
-      stop
+      errmsg="Error: region for prior calculation is empty (too small?)"
+      IF verbose THEN MESSAGE,errmsg
+      RETURN
     endif
     circle = intarr(nx,ny)
     circle[ind] = 1
@@ -546,15 +586,16 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     pmask = round(double(fft(fft(circle,1)*fft(p_delta,1),-1))) ; convolve
     ind = where(pmask and fgmask)
     if ind[0] eq -1 then begin
-      print, "Error: prior mask is empty"
-      stop
+      errmsg="Error: prior mask is empty"
+      IF verbose THEN MESSAGE,errmsg
+      RETURN
     endif
     pmask = pmask*0
     pmask[ind] = 1
     area_p = n_elements(where(pmask)) * pixres^2d ; arcsec^2
 
     if keyword_set(showplot) then begin
-      window, 5
+      IF ~postscript THEN window, 5
       tvscale, pmask, /keep, /noint
       xyouts, 0.02, 0.95, 'Prior Mask', charsize=1.5, charthick=3.0, $
               /normal, color=255
@@ -570,10 +611,12 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
     ; loop over prior
     for i=0, nprop-1 do begin
-      if keyword_set(proplabels) then label = proplabels[i] $
-      else label = 'Property'+strcompress(i+1)
+      if keyword_set(proplabels) then BEGIN
+         IF N_ELEMENTS(proplabels) GT 1 THEN label = proplabels[i] ELSE $
+            label = proplabels
+      ENDIF else label = 'Property'+strcompress(i+1)
 
-      print, "--- Calculating priors for "+label
+      MESSAGE, "--- Calculating priors for "+label,/INFORMATIONAL
       ; Set up arrays for foreground and background counts as a function
       ; of property bins
       prop_bgcounts = dblarr( propdims[i] )
@@ -581,11 +624,22 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
       prop_fgcounts = dblarr( propdims[i] )
       prop_fgcounts_err = dblarr( propdims[i] )
 
-      prop_bins = loggen( propbins[i,0], $
-                          propbins[i,0]+propbins[i,1]*(propdims[i]+1), $
-                          propdims[i]+1, /linear )
-      prop_bincen = (prop_bins[0:propdims[i]-1] + prop_bins[1:propdims[i]])/2.
-      dp = propbins[i,1]
+      
+      IF nprop EQ 1 THEN BEGIN
+         prop_bins = loggen( propbins[0], $
+                             propbins[0]+propbins[1]*(propdims+1), $
+                             propdims+1, /linear )
+         prop_bincen = (prop_bins[0:propdims-1] + prop_bins[1:propdims])/2.
+         dp = propbins[1]
+      ENDIF ELSE BEGIN
+         prop_bins = loggen( propbins[i,0], $
+                             propbins[i,0]+propbins[i,1]*(propdims[i]+1), $
+                             propdims[i]+1, /linear )
+         prop_bincen = (prop_bins[0:propdims[i]-1] + $
+                        prop_bins[1:propdims[i]])/2.
+         dp = propbins[i,1]
+      ENDELSE
+
 
       ; loop over bins and count sources with properties in range
       ; for the background and prior masks
@@ -649,7 +703,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
       ; plot the prior probability densities
       if keyword_set(showplot) then begin
-        window,6+i
+         IF ~postscript THEN window,6+i
 
         plot, prop_bincen, probability_bg, linestyle=2, charsize=1.5, $
               ytitle='Probability Density', xtitle=label, $
