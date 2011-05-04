@@ -42,11 +42,11 @@
 ; Optional Keyword Outputs:
 ;
 ;   lr_sr      = 99% search radius for LR
-;   p_bincen   = pointer array to bin centres for each property prior
-;   p_fg       = pointer array to foreground (match) priors for each property
-;   p_fg_err   = pointer array to errors in p_fg
-;   p_bg       = pointer array to background priors for each property
-;   p_bg_err   = pointer array to errors in p_bg
+;   po_bincen  = pointer array to bin centres for each property prior
+;   po_fg      = pointer array to foreground (match) priors for each property
+;   po_fg_err  = pointer array to errors in p_fg
+;   po_bg      = pointer array to background priors for each property
+;   po_bg_err  = pointer array to errors in p_bg
 ;   avmatch    = average number of matches to primaries expected
 ;   sigma_r    = sigma for Rayleigh radial distribution of matches
 ;   q          = match prior distribution (integrates to avmatch)
@@ -126,8 +126,8 @@ pro match_calcprior, p_ra, p_dec, m_ra, m_dec, m_mask, maskhead, rmax, nr, $
                      propbins=propbins, propdims=propdims, $
                      proplabels=proplabels, p_ind=p_ind, $
                      avmatch=avmatch, sigma_r=sigma_r, $
-                     p_bincen=p_bincen, p_fg=p_fg, p_fg_err=p_fg_err, $
-                     p_bg=p_bg, p_bg_err=p_bg_err, $
+                     po_bincen=po_bincen, po_fg=po_fg, po_fg_err=po_fg_err, $
+                     po_bg=po_bg, po_bg_err=po_bg_err, $
                      q=q, bdist=bdist, $
                      POSTSCRIPT=postscript,$
                      VERBOSE=verbose,SUCCESS=success,$
@@ -761,14 +761,22 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     minbdist = min(bdist[ind])
     ind = where( bdist eq 0)
     bdist = bdist * rho_bg
+
+    ; free pointers if they are not being returned to the caller
+    if arg_present( po_bincen ) then po_bincen = p_bincen $
+    else ptr_free, p_bincen
+
+    if arg_present( po_fg ) then po_fg = p_fg $
+    else ptr_free, p_fg
+
+    if arg_present( po_fg_err ) then po_fg_err = p_fg_err $
+    else ptr_free, p_fg_err
+
+    if arg_present( po_bg ) then po_bg = p_bg $
+    else ptr_free, p_bg
+
+    if arg_present( po_bg_err) then po_bg_err = p_bg_err $
+    else ptr_free, p_bg_err
   endif
-
-  ; free pointers if they are not being returned to the caller
-  if arg_present(p_bincen) eq 0 then ptr_free, p_bincen
-  if arg_present(p_fg) eq 0 then ptr_free, p_fg
-  if arg_present(p_fg_err) eq 0 then ptr_free, p_fg_err
-  if arg_present(p_bg) eq 0 then ptr_free, p_bg
-  if arg_present(p_bg_err) eq 0 then ptr_free, p_bg_err
-
 
 end
