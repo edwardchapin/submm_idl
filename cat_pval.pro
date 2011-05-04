@@ -41,7 +41,6 @@
 ;
 ; Dependencies:
 ;
-;   tvscale.pro: Coyote (http://www.idlcoyote.com/programs/tvscale.pro)
 ;   IDL astro library: (http://idlastro.gsfc.nasa.gov/)
 ;
 ; Authors:
