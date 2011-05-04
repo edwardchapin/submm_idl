@@ -8,12 +8,12 @@
 ;
 ; Required Inputs:
 ;
-;   ra       = array of input source right ascensions in hours
-;   dec      = "          "     "    declinations     in degrees
-;   catra    = array of matching catalogue RA's in hours
-;   catdec   =  "         "     "          DEC's in degrees
-;   catflux  = brightness of each source in matching catalogue
-;   catarea  = area in deg^2 covered by the matching catalogue
+;   p_ra     = array of primary source right ascensions in degrees
+;   p_dec    = "          "       "    declinations     "   "
+;   m_ra     = array of matching catalogue RA's in degrees
+;   m_dec    =  "         "     "          DEC's "    "
+;   m_flux   = brightness of each source in matching catalogue
+;   m_area   = area in deg^2 covered by the matching catalogue
 ;   insr     = input search radius in arcsec (scalar or vector)
 ;   maxmatch = maximum number of matches per source
 ;
@@ -29,15 +29,20 @@
 ;
 ;   If the following are specified, variable background source rates
 ;   will be calculated as a function of position, overriding the
-;   catarea variable above.
+;   m_area variable above.
 ;
 ;   catmask  = 2d map with 1's indicating locations to be considered in cat
 ;   cathead  = FITS header corresponding to catmask
 ;   catsr    = radius in cat (arcsec) in which to measure background counts
-;;
+;
 ; Optional Keyword Outputs:
 ;
 ;   smcounts  = smooth counts image if catmask etc. were specified
+;
+; Dependencies:
+;
+;   tvscale.pro: Coyote (http://www.idlcoyote.com/programs/tvscale.pro)
+;   IDL astro library: (http://idlastro.gsfc.nasa.gov/)
 ;
 ; Authors:
 ;   Edward Chapin, echapin@phas.ubc.ca (EC)
@@ -45,16 +50,22 @@
 ; History:
 ;   01APR2009: Initial version (EC)
 ;   26MAY2009: Added catmask/cathead/catsr (EC)
+;   04MAY2011: Use degrees instead of hours for RA (EC)
+;              Use IDL astro routines for coordinate conversion
 ;
 ;------------------------------------------------------------------------------
 
-pro cat_pval, ra, dec, catra, catdec, catflux, catarea, insr, maxmatch, $
+pro cat_pval, p_ra, p_dec, m_ra, m_dec, m_flux, m_area, insr, maxmatch, $
               matches, P_c, N_p, catmask=catmask, cathead=cathead, $
               catsr=catsr, smcounts=smcounts
 
   ; dimensions of arrays
-  n = n_elements(ra)
-  ncat = n_elements(catra)
+  n = n_elements(p_ra)
+  ncat = n_elements(m_ra)
+
+  ; convert right_ascensions to hours
+  p_ra_h = p_ra/15d
+  m_ra_h = m_ra/15d
 
   ; make array of search radii from scalar if necessary
   if n_elements(insr) eq 1 then sr = dblarr(n)+insr $
@@ -68,38 +79,25 @@ pro cat_pval, ra, dec, catra, catdec, catflux, catarea, insr, maxmatch, $
     print, "Analyzing masked region..."
 
     ; backup the catalogue before we select a subset
-    old_catarea = catarea
-    old_catra = catra
-    old_catdec = catdec
-    old_catflux = catflux
+    old_m_area = m_area
+    old_m_ra = m_ra
+    old_m_dec = m_dec
+    old_m_flux = m_flux
 
     ; Determine which entries from the catalogue land on the mask
     nx = sxpar(cathead,"NAXIS1")
     ny = sxpar(cathead,"NAXIS2")
-    CDELT1 = sxpar(cathead,"CD1_1")
-    CDELT2 = sxpar(cathead,"CD2_2")
-    if CDELT1 eq 0 then begin
-      CDELT1 = sxpar(cathead,"CDELT1")
-      CDELT2 = sxpar(cathead,"CDELT2")
-    endif
-    CRPIX1 = sxpar(cathead,"CRPIX1")
-    CRPIX2 = sxpar(cathead,"CRPIX2")
-    CRVAL1 = sxpar(cathead,"CRVAL1")
-    CRVAL2 = sxpar(cathead,"CRVAL2")
-    pixres = abs( cdelt1 )*3600d ; arcsec/pixel
-
-    radec2tan, CRVAL1, CRVAL2, catra*15d, catdec, ra_off, dec_off
-    x = round(ra_off/CDELT1 + CRPIX1 - 1)
-    y = round(dec_off/CDELT2 + CRPIX2 - 1)
+    cat_pix, m_ra, m_dec, x, y, cathead, pixres=pixres
 
     good = where( (x ge 0) and (x lt nx) and $
                   (y gt 0) and (y lt ny ) )
 
     onmask = where( catmask[x[good],y[good]] eq 1 )
     if onmask[0] ne -1 then begin
-      catra = catra[good[onmask]]
-      catdec = catdec[good[onmask]]
-      catflux = catflux[good[onmask]]
+      m_ra = m_ra[good[onmask]]
+      m_ra_h = m_ra_h[good[onmask]]
+      m_dec = m_dec[good[onmask]]
+      m_flux = m_flux[good[onmask]]
       x = x[good[onmask]]
       y = y[good[onmask]]
     endif else begin
@@ -140,9 +138,7 @@ pro cat_pval, ra, dec, catra, catdec, catflux, catarea, insr, maxmatch, $
     ; Work out the effective area for each catalogue entry by
     ; projecting source positions on to the map
 
-    radec2tan, CRVAL1, CRVAL2, ra*15d, dec, ra_off, dec_off
-    x = round(ra_off/CDELT1 + CRPIX1 - 1)
-    y = round(dec_off/CDELT2 + CRPIX2 - 1)
+    cat_pix, p_ra, p_dec, x, y, cathead
 
     ind = where(catmask[x,y] eq 0)
     if ind[0] ne -1 then begin
@@ -150,7 +146,7 @@ pro cat_pval, ra, dec, catra, catdec, catflux, catarea, insr, maxmatch, $
       stop
     endif
 
-    catarea = smarea[x,y]
+    m_area = smarea[x,y]
 
     ; work out the surface density of the catalogue vs. position
     ; by convolving with disc and dividing by effective area. This is the
@@ -165,7 +161,7 @@ pro cat_pval, ra, dec, catra, catdec, catflux, catarea, insr, maxmatch, $
     N_p = smcounts[x,y]         ; number density deg^-2 at "plate limit"
     P_c = 1-exp(-N_p*sa)        ; critical poisson chance prob.
   endif else begin
-    N_p = ncat / catarea        ; number density deg^-2 at "plate limit"
+    N_p = ncat / m_area        ; number density deg^-2 at "plate limit"
     P_c = 1-exp(-N_p*sa)        ; critical poisson chance prob.
   endelse
 
@@ -174,7 +170,7 @@ pro cat_pval, ra, dec, catra, catdec, catflux, catarea, insr, maxmatch, $
   matches = dblarr( n, maxmatch, 3 )-1 ; index, distance, P
 
   for i=0l, n-1 do begin
-    gcirc, 1, ra[i], dec[i], catra, catdec, d
+    gcirc, 1, p_ra_h[i], p_dec[i], m_ra_h, m_dec, d
 
     ; identify sources within the search radius
     ind = where( d le sr[i] )
@@ -194,16 +190,16 @@ pro cat_pval, ra, dec, catra, catdec, catflux, catarea, insr, maxmatch, $
           matches[i,j,1] = d[ind[j]] ; distance to counterpart in arcsec
 
           ; surface density of sources brighter than match
-          N_star = n_elements( where( (catflux ge catflux[ind[j]]) and $
+          N_star = n_elements( where( (m_flux ge m_flux[ind[j]]) and $
                                       (d le catsr) ) )
-          N_star = N_star / catarea[i]
+          N_star = N_star / m_area[i]
         endif else begin                   ; Constant surface density
           matches[i,j,0] = ind[j]          ; index to matching catalogue
           matches[i,j,1] = d[ind[j]]       ; distance to counterpart in arcsec
 
           ; surface density of sources brighter than match
-          N_star = n_elements(where(catflux ge catflux[ind[j]]))
-          N_star = N_star / catarea
+          N_star = n_elements(where(m_flux ge m_flux[ind[j]]))
+          N_star = N_star / m_area
         endelse
 
         ; Uncorrected false identification P-value
@@ -223,10 +219,10 @@ pro cat_pval, ra, dec, catra, catdec, catflux, catarea, insr, maxmatch, $
 
   ; restore catalogue
   if keyword_set(catmask) then begin
-    catarea = old_catarea
-    catra = old_catra
-    catdec = old_catdec
-    catflux = old_catflux
+    m_area = old_m_area
+    m_ra = old_m_ra
+    m_dec = old_m_dec
+    m_flux = old_m_flux
   endif
 
 end
