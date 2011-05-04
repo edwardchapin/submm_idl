@@ -53,6 +53,7 @@
 ;   bdist      = background number density per arcsec^2
 ;   success    = success flag (1=success)
 ;   errmsg     = string containing error message if abnormal exit
+;   suggest_rmax = suggest rmax based on 95% peak of cumulative radial dist.
 ;
 ; Dependencies:
 ;
@@ -68,6 +69,7 @@
 ;              Add properties, propbins, propdims (EC)
 ;   29APR2011: Check all where statements generate error messages (EC)
 ;   02MAY2011: Combine property priors independently and return (EC)
+;              Add suggest_rmax
 ;   02MAY2011: Fixed a minor bug for when only one prior is present,
 ;              cleaned up some of the informational i/o to allow for
 ;              'verbose' and 'postscript' keywords. (MZ)
@@ -131,7 +133,7 @@ pro match_calcprior, p_ra, p_dec, m_ra, m_dec, m_mask, maskhead, rmax, nr, $
                      q=q, bdist=bdist, $
                      POSTSCRIPT=postscript,$
                      VERBOSE=verbose,SUCCESS=success,$
-                     ERRMSG=errmsg
+                     ERRMSG=errmsg, suggest_rmax=suggest_rmax
 
 common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
@@ -324,7 +326,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
   ; Calculate bins of search radius
   all_r = loggen( 0, rmax, nr+1, /linear)       ; bin edges
-  all_dr = (all_r[1:nr] + all_r[0:nr-1])        ; bin widths
+  all_dr = (all_r[1:nr] - all_r[0:nr-1])        ; bin widths
   all_rcen = (all_r[0:nr-1] + all_r[1:nr])/2.   ; bin centres
 
   ; Check for step sizes that are smaller than map resolution. The 1.01
@@ -431,7 +433,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
       excess_err[i] = (counts_err[i]+expect_err[i])/(counts[i]-expect[i]) ; rel
       excess_err[i] = excess_err[i]*excess[i]                             ; abs
 
-      effstr = " effective sources: " + string( n_p_eff, format='(F5.1)' )  + $
+      effstr = " effective sources: " + string( n_p_eff, format='(F6.1)' )  + $
                ' / ' + strcompress(n_p,/remove_all)
 
       IF verbose THEN MESSAGE, 'Annulus:'+ $
@@ -455,6 +457,12 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     m_scale = 0.3*m_init
     fit = amoeba( 1d-6, function_name='fitrayleigh', p0=m_init, $\
                   scale=m_scale )
+    if fit[0] eq -1 then begin
+      errmsg="Error: couldn't fit Rayleigh distribution to excesses"
+      IF verbose THEN MESSAGE,errmsg
+      RETURN
+    endif
+
     avmatch = fit[0]
     sigma_r = fit[1]
 
@@ -479,7 +487,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
       modelstr = '!4'+greek_sigma+'!3!Dr!n='+string(sigma_r,format='(F4.1)')
       modelstr = modelstr+' E='+string(avmatch,format='(F3.1)')+ $
-                 ' !4'+greek_chi+'!3!u2!N='+string(chisq,format='(F3.1)')
+                 ' !4'+greek_chi+'!3!u2!N='+string(chisq,format='(F4.1)')
 
       xyouts, 0.6, 0.85, modelstr, charsize=1.5, charthick=!p.thick, /normal
     endif
@@ -510,6 +518,20 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
                          (counts_cum - expect_cum )    ; relative error
       cumexcess_err[i] = cumexcess_err[i]*cumexcess[i] ; absolute error
     endfor
+
+    ; identify a maximum search radius from the cumulative counts that
+    ; can be used in future calls to match_calcprior -- the radius
+    ; at which we first get 95% of the peak, and then go 50% larger
+
+    maxcum = max(cumexcess)
+    ind = where( cumexcess ge 0.95*maxcum )
+    if ind[0] ne -1 then begin
+      suggest_rmax = cumr[ind[0]]
+    endif
+
+    ; increase by 50% and round to multiple of step size in r
+    suggest_rmax = suggest_rmax*1.5
+    suggest_rmax = round(suggest_rmax / all_dr[0])*all_dr[0]
 
     ; smooth fitted model
     cum_highres = pdf*0
