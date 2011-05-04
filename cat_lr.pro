@@ -13,10 +13,10 @@
 ;
 ; Required Inputs:
 ;
-;   ra         = array of input source right ascensions in hours
-;   dec        = "          "     "    declinations     in degrees
-;   catra      = array of matching catalogue RA's in hours
-;   catdec     =  "         "     "          DEC's in degrees
+;   p_ra       = array of primary source right ascensions in degrees
+;   p_dec      = "          "     "       declinations     "    "
+;   m_ra       = array of matching catalogue RA's in degrees
+;   m_dec      =  "         "     "          Dec's "   "
 ;   sr         = maximum search radius (arcsec)
 ;   maxmatch   = maximum number of matches per source
 ;   sigma      = sigma for positional uncertainties (arcsec)
@@ -39,27 +39,32 @@
 ; History:
 ;   29MAY2009: Initial version (EC)
 ;   02MAY2011: added a comment (MZ)
+;   04MAY2011: Switch to using degrees for RA (EC)
 ;
 ;------------------------------------------------------------------------------
 
-pro cat_lr, ra, dec, catra, catdec, sr, maxmatch, sigma, $
-              properties, q, bdist, dims, bins, matches=matches
+pro cat_lr, p_ra, p_dec, m_ra, m_dec, sr, maxmatch, sigma, $
+            properties, q, bdist, dims, bins, matches=matches
 
   ; dimensions of arrays
-  n = n_elements(ra)             ; number of objects to find counterparts for
-  ncat = n_elements(catra)       ; elements in matching catalogue
-  ndims = n_elements(dims)       ; number of priors
+  n = n_elements(p_ra)          ; number of objects to find counterparts for
+  ncat = n_elements(m_ra)       ; elements in matching catalogue
+  ndims = n_elements(dims)      ; number of priors
+
+  ; convert right_ascensions to hours
+  p_ra_h = p_ra/15d
+  m_ra_h = m_ra/15d
 
   ; integrate q to get the total match fraction
   vol = 1.  ; total volume of an element in q
   for i=0, ndims-1 do vol = vol*bins[i,1]
   matchfrac = total(q)*vol
 
-  ; loop over sources and search for counterparts
+  ; loop over primary sources and search for counterparts
   matches = dblarr( n, maxmatch, 4 )-1 ; index, distance, LR, R
 
   for i=0l, n-1 do begin
-    gcirc, 1, ra[i], dec[i], catra, catdec, d
+    gcirc, 1, p_ra_h[i], p_dec[i], m_ra_h, m_dec, d
 
     ; identify sources within the search radius
     ind = where( d le sr )
