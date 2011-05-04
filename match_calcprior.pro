@@ -68,8 +68,8 @@
 ;              Add properties, propbins, propdims (EC)
 ;   29APR2011: Check all where statements generate error messages (EC)
 ;   02MAY2011: Combine property priors independently and return (EC)
-;   02MAY2011: Fixed a minor bug for when only one prior is present, 
-;              cleaned up some of the informational i/o to allow for 
+;   02MAY2011: Fixed a minor bug for when only one prior is present,
+;              cleaned up some of the informational i/o to allow for
 ;              'verbose' and 'postscript' keywords. (MZ)
 ;
 ;------------------------------------------------------------------------------
@@ -140,7 +140,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
   IF ~(N_ELEMENTS(verbose)) THEN verbose=1 ELSE verbose=verbose
   IF ~(N_ELEMENTS(postscript)) THEN postscript=0 ELSE postscript=postscript
-  
+
   ; characters in greek font set
   greek_sigma = 'r'
   greek_chi = 'v'
@@ -559,7 +559,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     endif
 
     MESSAGE,"Will measure priors based on supplied properties using " + $
-            "search radius of ", $
+            "search radius of "+ $
             string(all_rcen[maxind],format='(F5.1)') + " arcsec",$
             /INFORMATIONAL
   endif
@@ -614,7 +614,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
        if keyword_set(proplabels) then $
           label = proplabels[i] else $
              label = 'Property'+strcompress(i+1)
-    
+
       MESSAGE, "--- Calculating priors for "+label,/INFORMATIONAL
       ; Set up arrays for foreground and background counts as a function
       ; of property bins
@@ -623,7 +623,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
       prop_fgcounts = dblarr( propdims[i] )
       prop_fgcounts_err = dblarr( propdims[i] )
 
-      
+
 
       prop_bins = loggen( propbins[i,0], $
                           propbins[i,0]+propbins[i,1]*(propdims[i]+1), $
