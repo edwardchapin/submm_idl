@@ -123,7 +123,7 @@ pro findpeaks, map, x, y, z, mindist=mindist, thresh=thresh, header=header, $
   ; calculate RA and Dec for each source
 
   if keyword_set(header) then begin
-    cat_pix, ra, dec, x, y, header
+    cat_pix, ra, dec, x, y, header, /pix2cat
   endif
 
 end
