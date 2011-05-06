@@ -69,7 +69,7 @@ pro cat_pix, lon, $           ; Lon. in degrees
 
   if keyword_set(pix2cat) then begin
     ; convert x,y --> lon, lat
-    xyad, header, x, y, lon2, lat2
+    xyad, header, x, y, lon, lat
   endif else begin
     ; convert lon, lat --> x,y
     adxy, header, lon, lat, x, y
