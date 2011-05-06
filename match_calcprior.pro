@@ -54,6 +54,7 @@
 ;   success    = success flag (1=success)
 ;   errmsg     = string containing error message if abnormal exit
 ;   suggest_rmax = suggest rmax based on 95% peak of cumulative radial dist.
+;   bgmask     = mask indicating where background sources were selected
 ;
 ; Dependencies:
 ;
@@ -74,6 +75,7 @@
 ;   02MAY2011: Fixed a minor bug for when only one prior is present,
 ;              cleaned up some of the informational i/o to allow for
 ;              'verbose' and 'postscript' keywords. (MZ)
+;   06MAY2011: Add bgmask output (EC)
 ;
 ;------------------------------------------------------------------------------
 
@@ -134,7 +136,8 @@ pro match_calcprior, p_ra, p_dec, m_ra, m_dec, m_mask, maskhead, rmax, nr, $
                      q=q, bdist=bdist, $
                      POSTSCRIPT=postscript,$
                      VERBOSE=verbose,SUCCESS=success,$
-                     ERRMSG=errmsg, suggest_rmax=suggest_rmax
+                     ERRMSG=errmsg, suggest_rmax=suggest_rmax, $
+                     bgmask=bgmask
 
 common fitrayleigh_block, all_r, all_rcen, excess, excess_err
 
