@@ -76,6 +76,7 @@
 ;              cleaned up some of the informational i/o to allow for
 ;              'verbose' and 'postscript' keywords. (MZ)
 ;   06MAY2011: Add bgmask output (EC)
+;   19MAY2011: Do better job of excess integrals vs. radius (EC)
 ;
 ;------------------------------------------------------------------------------
 
@@ -85,28 +86,51 @@
 ;------------------------------------------------------------------------------
 
 function fitrayleigh, m, model_excess=model_excess
-common fitrayleigh_block, all_r, all_rcen, excess, excess_err
+common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
+  dist_lowres, dist_highres, dist_res_lookup
 
 avmatch = m[0]
 sigma_r = m[1]
 n = n_elements(all_rcen)
 
-nint = 10d
-int_bin = loggen(0,all_r[1], nint+1,/linear)
-int_dbin = int_bin[1:nint] - int_bin[0:nint-1]
-int_cen = (int_bin[1:nint] + int_bin[0:nint-1])/2d
-
 chisq = 0d
 all_y = dblarr(n)
 
 ; integrate model across each excess bin and calculate contribution to chi^2
+
+
+; old way assumes that blocky 2d dist array is good
+; approximation... it isn't
+;nint = 10d
+;int_bin = loggen(0,all_r[1], nint+1,/linear)
+;int_dbin = int_bin[1:nint] - int_bin[0:nint-1]
+;int_cen = (int_bin[1:nint] + int_bin[0:nint-1])/2d
+
+;for i=0, n-1 do begin
+;  r = all_r[i]+int_cen
+;  dr = int_dbin
+
+;  y = avmatch*total( (r/sigma_r^2d)*exp(-r^2d/(2d*sigma_r^2d))*dr )
+;  all_y[i] = y
+
+;  chisq = chisq + (excess[i]-y)^2d/(excess_err[i])^2d
+;endfor
+
+;all_y_old = all_y
+
+; new way integrated across low-res pixels
+da = dist_highres[1]^2d ; area of high-resolution pixel
 for i=0, n-1 do begin
-  r = all_r[i]+int_cen
-  dr = int_dbin
+  ; identify pixels in high-resolution dist that match the low-resolution
+  ; dist binning
+  ind = where( (dist_res_lookup ge all_r[i]) and $
+               (dist_res_lookup lt all_r[i+1]) )
 
-  y = avmatch*total( (r/sigma_r^2d)*exp(-r^2d/(2d*sigma_r^2d))*dr )
+  ; integrate the 2d Gaussian over the relevant area of dist_highres
+  y = avmatch*total( (1/(2*!dpi*sigma_r^2d)) * $
+                     exp( -dist_highres[ind]^2d/(2d*sigma_r^2d) ) * da )
+
   all_y[i] = y
-
   chisq = chisq + (excess[i]-y)^2d/(excess_err[i])^2d
 endfor
 
@@ -139,7 +163,8 @@ pro match_calcprior, p_ra, p_dec, m_ra, m_dec, m_mask, maskhead, rmax, nr, $
                      ERRMSG=errmsg, suggest_rmax=suggest_rmax, $
                      bgmask=bgmask
 
-common fitrayleigh_block, all_r, all_rcen, excess, excess_err
+common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
+  dist_lowres, dist_highres, dist_res_lookup
 
   COMPILE_OPT IDL2, STRICTARRSUBS
   success = 0b
@@ -371,6 +396,14 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
   all_dr = (all_r[1:nr] - all_r[0:nr-1])        ; bin widths
   all_rcen = (all_r[0:nr-1] + all_r[1:nr])/2.   ; bin centres
 
+  ; 2-D distance array, high-res distance array for integrals, and
+  ; a high-res lookup table to match low-res to high-res pixels
+
+  res_scale = 10. ; use 10 x higher resolution for integration
+  dist_lowres = dist(nr*2)*all_dr[0]
+  dist_highres = dist(nr*2*res_scale)*all_dr[0]/res_scale
+  dist_res_lookup = rebin(dist_lowres, nr*2*res_scale, nr*2*res_scale, /sample)
+
   ; Check for step sizes that are smaller than map resolution. The 1.01
   ; just covers cases where it's really close.
   if all_dr[0]*1.01 lt pixres then begin
@@ -497,6 +530,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err
     sigma_guess = all_rcen[ind]
     m_init = [avmatch_guess,sigma_guess]
     m_scale = 0.3*m_init
+
     fit = amoeba( 1d-6, function_name='fitrayleigh', p0=m_init, $\
                   scale=m_scale )
     if fit[0] eq -1 then begin
