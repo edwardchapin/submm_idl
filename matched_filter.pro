@@ -43,38 +43,49 @@
 ; History:
 ;   26APR2010: Initial Version (EC)
 ;   27AUG2010: Guess white noise level, padding (EC)
+;   16AUG2011: Handle arbitrary dims, fix broken behaviour asymmetric PSFs (EC)
 ;------------------------------------------------------------------------------
 
 pro matched_filter, psf, white, conf, $
                     filt=filt, effective=effective, $
                     map=map, noise=noise, $
                     sm_map=sm_map, sm_noise=sm_noise, $
-                    psf_out=psf_out, hits=hits, pad=pad
+                    psf_out=psf_out, hits=hits, pad=pad, $
+                    white_out=white_out
+
+  ; obtain dimensions from map if supplied, otherwise use a small
+  ; hard-wired (square) map size for the filter
+  if keyword_set(psf) then begin
+    nx = n_elements(map[*,0])
+    ny = n_elements(map[0,*])
+  endif else begin
+    nx = 128
+    ny = nx
+  endelse
 
   if n_elements(psf) eq 1 then begin
-    ; generate a peak-normalized PSF if needed
+    ; generate a peak-normalized PSF
 
-    if( keyword_set(map) ) then begin
-      n = max( [n_elements(map[*,0]), n_elements(map[0,*])] )
-    endif else begin
-      n = 128
-    endelse
+    maxdim = max( [nx,ny] )     ; remember the longest dimension
 
-    d = dist(n)
+    d = shift(dist(maxdim),maxdim/2,maxdim/2)
+    d = d[maxdim/2-nx/2:maxdim/2-nx/2+nx-1, $
+          maxdim/2-ny/2:maxdim/2-ny/2+ny-1]
+    d = shift(d,-nx/2,-ny/2) ; this now has possibly non-square aspect ratio
+
     fwhm = psf
-    psf = exp( -d^2d/(2d*(fwhm/2.35d)^2d) )
-    psf = psf/max(psf)
+    thepsf = exp( -d^2d/(2d*(fwhm/2.35d)^2d) )
+    thepsf = thepsf/max(thepsf)
   endif else begin
-    ; Get dimensions from the PSF
-    n = n_elements(psf[*,0])
+    ; otherwise user supplied the psf
+
+    thepsf = psf
   endelse
 
   ; work out the white noise level if needed
   if keyword_set( white ) eq 0 then begin
     ; Create a 1/sigma^2 map and calculate the mean for a central region
     weightmap = 1/noise^2d
-    nx = n_elements(weightmap[*,0])
-    ny = n_elements(weightmap[0,*])
 
     sz = fix(nx*0.1) ; look at the central 20% x 20% of the map
 
@@ -84,16 +95,16 @@ pro matched_filter, psf, white, conf, $
   ; The white noise level in Fourier space is related to the real-space
   ; noise in a pixel, and the size of the map
 
-  nsamp = double(n)^2d
+  nsamp = double(nx)*double(ny)
   white = sqrt(nsamp*white^2d) ; white noise level -- amplitude in Fourier Space
   p_w = white^2d               ; power spectrum level
 
   ; Confusion noise power spectrum is estimated to have the same shape
   ; as the PSF, but normalized to the specified confusion noise
 
-  psf_fft = fft(psf,1)
+  psf_fft = fft(thepsf,1)
   p_beam = abs(psf_fft)^2d
-  scale_confusion = conf/stdev(psf)
+  scale_confusion = conf/stdev(thepsf)
   p_c = scale_confusion^2d*p_beam
 
   ; the matched filter is the psf divided by the noise power spectrum in
@@ -104,12 +115,12 @@ pro matched_filter, psf, white, conf, $
   filt = double( fft(filt_fft, -1) )     ; real space matched filter
 
   ; next we work out the normalization empirically: we want to be able
-  ; to filter a map with the PSF and get the same peak amplitude. Since
-  ; we are cross-correlating the map with the PSF, remember to take
-  ; the transpose (in real space) of one of the arguments before taking
-  ; the product in Fourier space.
+  ; to filter a map with the PSF and get the same peak
+  ; amplitude. Since we are cross-correlating rather that convolving
+  ; the map with the PSF, we take the complex conjugate of the PSF
+  ; before taking the product in Fourier space.
 
-  map_filt = double( fft( fft(transpose(psf),1) * filt_fft, -1 ) ) / $
+  map_filt = double( fft( conj(fft(thepsf,1)) * filt_fft, -1 ) ) / $
              total(filt^2d)
 
   scale_filt = max(map_filt)
@@ -122,73 +133,64 @@ pro matched_filter, psf, white, conf, $
 
   if keyword_set(map) then begin
 
-    ; pad signal and noise maps
+    ; pad signal and noise maps if required
     if keyword_set(pad) then begin
-      nx = n_elements(map[*,0])
-      ny = n_elements(map[0,*])
-
-      newmap = dblarr(nx+2*pad,ny+2*pad)
-      newmap[pad:pad+nx-1,pad:pad+ny-1] = map
-      map = newmap
+      themap = dblarr(nx+2*pad,ny+2*pad)
+      themap[pad:pad+nx-1,pad:pad+ny-1] = map
 
       if keyword_set(noise) then begin
-        newnoise = dblarr(nx+2*pad,ny+2*pad) + max(noise)
-        newnoise[pad:pad+nx-1,pad:pad+ny-1] = noise
-        noise = newnoise
+        thenoise = dblarr(nx+2*pad,ny+2*pad) + max(noise)
+        thenoise[pad:pad+nx-1,pad:pad+ny-1] = noise
       endif
-    endif
+    endif else begin
+      themap = map
+      if keyword_set(noise) then thenoise = noise
+    endelse
 
     ; create a PSF that matches the map dimensions
-    nx = n_elements(map[*,0])
-    ny = n_elements(map[0,*])
+    mapx = n_elements(themap[*,0])
+    mapy = n_elements(themap[0,*])
 
-    flt = dblarr(ny,nx)            ; swap because we will take the transpose
-    filt = shift(filt,n/2,n/2)
+    flt = dblarr(mapx,mapy)
 
-    xsz = min( [nx,n] )
-    ysz = min( [ny,n] )
+    flt[mapx/2-nx/2:mapx/2-nx/2+nx-1, mapy/2-ny/2:mapy/2-ny/2+ny-1] = $
+      shift(filt, nx/2, ny/2)
 
-    flt[ny/2-ysz/2:ny/2-ysz/2+ysz-1, nx/2-xsz/2:nx/2-xsz/2+xsz-1] = $
-      filt[n/2-ysz/2:n/2-ysz/2+ysz-1, n/2-xsz/2:n/2-xsz/2+xsz-1]
-
-    filt = shift(filt,-n/2,-n/2)   ; original
-    flt = shift(flt,-ny/2,-nx/2)   ; matched to dimensions of map
+    flt = shift(flt,-mapx/2,-mapy/2)
 
     if keyword_set(noise) then begin
       ; noise-weighted cross-correlation
-      weightmap = 1/noise^2.
+      weightmap = 1/thenoise^2.
 
-      smoothweightflux = double(fft( fft(map*weightmap,1) * $
-                                     fft(transpose(flt),1), -1 ))
+      smoothweightflux = double(fft( fft(themap*weightmap,1) * $
+                                     conj(fft(flt,1)), -1 ))
 
       smoothweightmap = double(fft( fft(weightmap,1) * $
-                                    fft(transpose(flt)^2d,1), -1 ))
+                                    conj(fft(flt^2d,1)), -1 ))
 
       sm_map = smoothweightflux/smoothweightmap
       sm_noise = sqrt(1./smoothweightmap)
 
     endif else begin
       ; simple cross-correlation
-      sm_map = double(fft( fft(map,1)*fft(transpose(flt),1), -1 )) / $
+      sm_map = double(fft( fft(themap,1)*conj(fft(flt,1)), -1 )) / $
                total(flt^2d)
     endelse
 
     ; undo padding
     if keyword_set(pad) then begin
-      nx = nx - 2*pad
-      ny = ny - 2*pad
+      mapx = mapx - 2*pad
+      mapy = mapy - 2*pad
 
-      map = map[pad:pad+nx-1,pad:pad+ny-1]
-      sm_map = sm_map[pad:pad+nx-1,pad:pad+ny-1]
+      sm_map = sm_map[pad:pad+mapx-1,pad:pad+mapy-1]
 
       if keyword_set(noise) then begin
-        noise = noise[pad:pad+nx-1,pad:pad+ny-1]
-        sm_noise = sm_noise[pad:pad+nx-1,pad:pad+ny-1]
+        sm_noise = sm_noise[pad:pad+mapx-1,pad:pad+mapy-1]
       endif
     endif
   endif
 
   ; other return values
-  psf_out = psf
+  psf_out = thepsf
   white_out = white
 end
