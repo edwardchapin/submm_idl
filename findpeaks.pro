@@ -1,10 +1,10 @@
 ;------------------------------------------------------------------------------
 ; findpeaks.pro: identifies peaks in a map
 ;
-
-; This routine dentifies a list of local maxima in a 2-d map.  You can
+; This routine identifies a list of local maxima in a 2-d map.  You can
 ; optionally choose a threshold, and a minimum distance to reject many
-; sources that are close to eachother
+; sources that are close to eachother. If a PSF is supplied it is also
+; possible to calculation locations with sub-pixel precision.
 ;
 ; Required Inputs:
 ;
@@ -15,6 +15,7 @@
 ;  thresh  = threshold in same units as map
 ;  mindist = minimum distance between sources
 ;  header  = FITS header for astrometry
+;  cntrd   = set to 0,0-centered PSF to calculate x_cen, y_cen, ra_cen, dec_cen
 ;
 ; Optional Keyword Outputs:
 ;
@@ -23,21 +24,29 @@
 ;   z      = map values at peaks
 ;   ra     = right ascension in degrees if header specified
 ;   dec    = declination      "    "
+;   cenx   = calculate centroid x-pixel value (sub-pixel resolution)
+;   ceny   = "                  y-pixel
+;   cenra  = "                  RA if header specified
+;   cendec = "                  Dec     "
 ;
 ; Dependencies:
 ;
 ;   IDL astro library: (http://idlastro.gsfc.nasa.gov/)
 ;
 ; Authors:
+;
 ;   Edward Chapin, echapin@phas.ubc.ca (EC)
 ;
 ; History:
+;
 ;   06MAY2011: Initial committed version (EC)
+;   22AUG2011: Added cntrd/cenx/ceny/cenra/cendec (EC)
 ;
 ;------------------------------------------------------------------------------
 
 pro findpeaks, map, x, y, z, mindist=mindist, thresh=thresh, header=header, $
-               ra=ra, dec=dec
+               ra=ra, dec=dec, cntrd=cntrd, cenx=cenx, ceny=ceny, $
+               cenra=cenra, cendec=cendec
 
   xpix = n_elements(map[*,0])
   ypix = n_elements(map[0,*])
@@ -50,6 +59,8 @@ pro findpeaks, map, x, y, z, mindist=mindist, thresh=thresh, header=header, $
   nsource = 0l
 
   ; loop over all pixels except for the edges
+
+  print, "Finding local maxima..."
 
   srcflag = bytarr(xpix,ypix)
 
@@ -90,6 +101,8 @@ pro findpeaks, map, x, y, z, mindist=mindist, thresh=thresh, header=header, $
   ; multiple source rejection
 
   if keyword_set(mindist) then begin
+    print, "Rejecting multiple nearby sources..."
+
     goodflag = intarr(n_elements(x))+1
 
     ; loop over all sources that we found
@@ -124,6 +137,70 @@ pro findpeaks, map, x, y, z, mindist=mindist, thresh=thresh, header=header, $
 
   if keyword_set(header) then begin
     cat_pix, ra, dec, x, y, header, /pix2cat
+  endif
+
+  ; refine positions by fitting a Gaussian, fit to the supplied
+  ; PSF, to the vicinity of each identified peak
+
+  if keyword_set(cntrd) then begin
+
+    print, "Calculating sub-pixel peak locations..."
+
+    ; shift PSF to the centre of the map and fit a Gaussian to it. Just
+    ; use the central 5x5 pixels to get a rough idea
+
+    psf = cntrd
+
+    nx_psf = n_elements(psf[*,0])
+    ny_psf = n_elements(psf[0,*])
+
+    psf = shift(psf, nx_psf/2, ny_psf/2)
+
+    sz = (5 < nx_psf) < ny_psf
+
+    psf_centre = psf[nx_psf/2-sz/2:nx_psf/2-sz/2+sz-1, $
+                     ny_psf/2-sz/2:ny_psf/2-sz/2+sz-1]
+
+    fit = gauss2dfit( psf_centre, coeff )
+
+    a = coeff[2]
+    b = coeff[3]
+    fwhm = mean( (2.35/sqrt(2))*[a,b] )
+
+    ; then run over all of the peaks and fit central 3x3
+    n = n_elements(x)
+    cenx = x*1d
+    ceny = y*1d
+
+    for i=0l, n-1 do begin
+      ; place into image that is 2*fwhm x 2*fwhm
+      sz_img = 2d*round(fwhm)
+
+      ; only look at sources far enough from the edges
+      if( (x[i] ge sz_img/2) and $
+          (x[i] lt xpix-sz_img/2) and $
+          (y[i] ge sz_img/2) and $
+          (y[i] lt ypix-sz_img/2) ) then begin
+
+        img = map[x[i]-sz_img/2:x[i]-sz_img/2+sz_img-1, $
+                  y[i]-sz_img/2:y[i]-sz_img/2+sz_img-1 ]
+
+        cntrd, img, sz_img/2, sz_img/2, xc, yc, fwhm, /silent
+
+        if( (xc ne -1) and (yc ne -1) and $
+            (xc ge (sz_img/2-1.0)) and (xc lt (sz_img/2+1.0)) and $
+            (yc ge (sz_img/2-1.0)) and (yc lt (sz_img/2+1.0)) ) then begin
+
+          cenx[i] = xc+x[i]-sz_img/2
+          ceny[i] = yc+y[i]-sz_img/2
+        endif
+      endif
+    endfor
+
+    if keyword_set(header) then begin
+      cat_pix, cenra, cendec, cenx, ceny, header, /pix2cat
+    endif
+
   endif
 
 end
