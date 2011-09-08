@@ -28,8 +28,11 @@
 ;
 ;   showplot   = If set, show plots to depict progress
 ;   rprior     = Override internally-estimate ideal search radius for priors
-;   avmatch    = use this value if rprior set (see Optional Keyword Outputs)
-;   sigma_r    = use this value if rprior set (see Optional Keyword Outputs)
+;   e1         = use this value if rprior set (see Optional Keyword Outputs)
+;   sig1       = use this value if rprior set (see Optional Keyword Outputs)
+;   e2         = use this value if rprior set (see Optional Keyword Outputs)
+;   sig2       = use this value if rprior set (see Optional Keyword Outputs)
+;   rayleigh2  = use sum of 2 rayleigh dist (see e2, sig2)
 ;   noradial   = If set, and rprior set, skip radial distribution measurement
 ;   properties = N primary catalogue entries X M properties for priors
 ;   propbins   = M X 2: bin_min, delta_bin for binned priors arrays
@@ -47,8 +50,11 @@
 ;   po_fg_err  = pointer array to errors in p_fg
 ;   po_bg      = pointer array to background priors for each property
 ;   po_bg_err  = pointer array to errors in p_bg
-;   avmatch    = average number of matches to primaries expected
-;   sigma_r    = sigma for Rayleigh radial distribution of matches
+;   e1         = average number of matches to primaries expected
+;   sig1       = sigma for Rayleigh radial distribution of matches
+;   e2         = if rayleigh2 set, integral of the second component
+;   sig2       = "     "       "   width of the second component
+;   avmatch    = av. matches expected per primary (e1 or e1+e2 see rayleigh2)
 ;   q          = match prior distribution (integrates to avmatch)
 ;   bdist      = background number density per arcsec^2
 ;   success    = success flag (1=success)
@@ -77,6 +83,7 @@
 ;              'verbose' and 'postscript' keywords. (MZ)
 ;   06MAY2011: Add bgmask output (EC)
 ;   19MAY2011: Do better job of excess integrals vs. radius (EC)
+;   08SEP2011: Fix offset bug in radial integral, add rayleigh2 (EC)
 ;
 ;------------------------------------------------------------------------------
 
@@ -89,8 +96,8 @@ function fitrayleigh, m, model_excess=model_excess
 common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
   dist_lowres, dist_highres, dist_res_lookup
 
-avmatch = m[0]
-sigma_r = m[1]
+e1 = m[0]
+sig1 = m[1]
 n = n_elements(all_rcen)
 
 chisq = 0d
@@ -110,7 +117,7 @@ all_y = dblarr(n)
 ;  r = all_r[i]+int_cen
 ;  dr = int_dbin
 
-;  y = avmatch*total( (r/sigma_r^2d)*exp(-r^2d/(2d*sigma_r^2d))*dr )
+;  y = e1*total( (r/sig1^2d)*exp(-r^2d/(2d*sig1^2d))*dr )
 ;  all_y[i] = y
 
 ;  chisq = chisq + (excess[i]-y)^2d/(excess_err[i])^2d
@@ -118,7 +125,7 @@ all_y = dblarr(n)
 
 ;all_y_old = all_y
 
-; new way integrated across low-res pixels
+; new way integrates across low-res pixels
 da = dist_highres[1]^2d ; area of high-resolution pixel
 for i=0, n-1 do begin
   ; identify pixels in high-resolution dist that match the low-resolution
@@ -127,8 +134,8 @@ for i=0, n-1 do begin
                (dist_res_lookup lt all_r[i+1]) )
 
   ; integrate the 2d Gaussian over the relevant area of dist_highres
-  y = avmatch*total( (1/(2*!dpi*sigma_r^2d)) * $
-                     exp( -dist_highres[ind]^2d/(2d*sigma_r^2d) ) * da )
+  y = e1*total( (1/(2*!dpi*sig1^2d)) * $
+                     exp( -dist_highres[ind]^2d/(2d*sig1^2d) ) * da )
 
   all_y[i] = y
   chisq = chisq + (excess[i]-y)^2d/(excess_err[i])^2d
@@ -138,7 +145,58 @@ model_excess = all_y
 
 chisq = chisq/(n-2)
 
-if (sigma_r le 0) or (avmatch le 0) then chisq=1000d
+if (sig1 le 0) or (e1 le 0) then chisq=1000d
+
+;print, chisq,':', m
+
+return, chisq
+end
+
+;------------------------------------------------------------------------------
+; Two Rayleigh distributions to allow a larger tail
+;------------------------------------------------------------------------------
+
+function fitrayleigh2, m, model_excess=model_excess
+common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
+  dist_lowres, dist_highres, dist_res_lookup
+
+e1 = m[0]
+sig1 = m[1]
+e2 = m[2]
+sig2 = m[3]
+
+n = n_elements(all_rcen)
+
+chisq = 0d
+all_y = dblarr(n)
+
+; high-resolution 2d positional distribution
+pdf2d = e1*(1/(2*!dpi*sig1^2d))*exp(-dist_highres^2d/(2d*sig1^2d)) + $
+        e2*(1/(2*!dpi*sig2^2d))*exp(-dist_highres^2d/(2d*sig2^2d))
+
+; integrate across low-res pixels
+da = dist_highres[1]^2d ; area of high-resolution pixel
+
+for i=0, n-1 do begin
+  ; identify pixels in high-resolution dist that match the low-resolution
+  ; dist binning
+  ind = where( (dist_res_lookup ge all_r[i]) and $
+               (dist_res_lookup lt all_r[i+1]) )
+
+  ; integrate the two 2d Gaussians over the relevant area of dist_highres
+  y = total(pdf2d[ind]*da)
+
+  all_y[i] = y
+  chisq = chisq + (excess[i]-y)^2d/(excess_err[i])^2d
+endfor
+
+model_excess = all_y
+
+chisq = chisq/(n-4)
+
+if (sig1 le 0) or (e1 le 0) or (sig2 le 0) or (e2 le 0) then chisq=1000d
+
+;if chisq le 0.92 then stop
 
 ;print, chisq,':', m
 
@@ -154,7 +212,9 @@ pro match_calcprior, p_ra, p_dec, m_ra, m_dec, m_mask, maskhead, rmax, nr, $
                      rprior=rprior, noradial=noradial, properties=properties, $
                      propbins=propbins, propdims=propdims, $
                      proplabels=proplabels, p_ind=p_ind, $
-                     avmatch=avmatch, sigma_r=sigma_r, $
+                     rayleigh2=rayleigh2, $
+                     e1=e1, sig1=sig1, $
+                     e2=e2, sig2=sig2, avmatch=avmatch, $
                      po_bincen=po_bincen, po_fg=po_fg, po_fg_err=po_fg_err, $
                      po_bg=po_bg, po_bg_err=po_bg_err, $
                      q=q, bdist=bdist, $
@@ -392,17 +452,20 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
   rho_bg_err = sqrt(n_bg) / area_bg
 
   ; Calculate bins of search radius
-  all_r = loggen( 0, rmax, nr+1, /linear)       ; bin edges
-  all_dr = (all_r[1:nr] - all_r[0:nr-1])        ; bin widths
-  all_rcen = (all_r[0:nr-1] + all_r[1:nr])/2.   ; bin centres
+  all_r = loggen( 0, rmax, nr+1, /linear)                ; bin edges
+  all_dr = (all_r[1:nr] - all_r[0:nr-1])                 ; bin widths
+  all_rcen = (all_r[0:nr-1] + all_r[1:nr])/2. -pixres/2  ; real radial bincen
 
   ; 2-D distance array, high-res distance array for integrals, and
   ; a high-res lookup table to match low-res to high-res pixels
 
-  res_scale = 10. ; use 10 x higher resolution for integration
+  res_scale = 20. ; use 10 x higher resolution for integration
   dist_lowres = dist(nr*2)*all_dr[0]
   dist_highres = dist(nr*2*res_scale)*all_dr[0]/res_scale
   dist_res_lookup = rebin(dist_lowres, nr*2*res_scale, nr*2*res_scale, /sample)
+
+  ; this shift is needed to centre things properly for the low-res pixels
+  dist_res_lookup = shift(dist_res_lookup,-res_scale/2,-res_scale/2)
 
   ; Check for step sizes that are smaller than map resolution. The 1.01
   ; just covers cases where it's really close.
@@ -520,7 +583,7 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
     endfor
 
     ; fit rayleigh distribution to excess counts
-    avmatch_guess = total(excess)
+    e1_guess = total(excess)
     ind = (where(excess eq max(excess)))[0]
     if ind[0] eq -1 then begin
       errmsg="Error: error finding guess sigma for Rayleigh distribution"
@@ -528,50 +591,100 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
       RETURN
     endif
     sigma_guess = all_rcen[ind]
-    m_init = [avmatch_guess,sigma_guess]
-    m_scale = 0.3*m_init
 
-    fit = amoeba( 1d-6, function_name='fitrayleigh', p0=m_init, $\
-                  scale=m_scale )
-    if fit[0] eq -1 then begin
-      errmsg="Error: couldn't fit Rayleigh distribution to excesses"
-      IF verbose THEN MESSAGE,errmsg
-      RETURN
-    endif
+    r_highres = loggen(0,rmax,100,/linear) ; for evaluating high-res PDF
 
-    avmatch = fit[0]
-    sigma_r = fit[1]
+    if keyword_set(rayleigh2) then begin
+      ; --- 2-component Rayleigh distribution ---
+      m_init = [e1_guess*0.5,sigma_guess,e1_guess*0.5,sigma_guess*2.]
+      m_scale = 0.3*m_init
 
-    ; high-res sampled version of the smooth distribution
-    r_highres = loggen(0,rmax,100,/linear)
-    pdf = (r_highres/sigma_r^2d)*exp(-r_highres^2d/(2d*sigma_r^2d))
-    scale=avmatch*(all_dr[0])         ; since total #'s given in each bin
+      fit = amoeba( 1d-6, function_name='fitrayleigh2', p0=m_init, $\
+                     scale=m_scale )
+      if fit[0] eq -1 then begin
+        errmsg="Error: couldn't fit double Rayleigh distribution to excesses"
+        IF verbose THEN MESSAGE,errmsg
+        RETURN
+      endif
 
-    ; ...and also the low-resolution binned version from which chi^2 was
-    ; calculated
-    chisq = fitrayleigh(fit,model_excess=model_excess)
+      e1 = fit[0]
+      sig1 = fit[1]
+      e2 = fit[2]
+      sig2 = fit[3]
+
+      avmatch = e1 + e2
+
+      ; high-res PDF
+      pdf = e1*(r_highres/sig1^2d)*exp(-r_highres^2d/(2d*sig1^2d)) + $
+            e2*(r_highres/sig2^2d)*exp(-r_highres^2d/(2d*sig2^2d))
+
+      ; low-res
+      chisq = fitrayleigh2(fit,model_excess=model_excess)
+
+    endif else begin
+    ; --- single-component rayleigh distribution ---
+      m_init = [e1_guess,sigma_guess]
+      m_scale = 0.3*m_init
+
+      fit = amoeba( 1d-6, function_name='fitrayleigh', p0=m_init, $\
+                    scale=m_scale )
+      if fit[0] eq -1 then begin
+        errmsg="Error: couldn't fit Rayleigh distribution to excesses"
+        IF verbose THEN MESSAGE,errmsg
+        RETURN
+      endif
+
+      e1 = fit[0]
+      sig1 = fit[1]
+
+      avmatch = e1
+
+      ; high-res sampled version of the smooth distribution
+      pdf = e1*(r_highres/sig1^2d)*exp(-r_highres^2d/(2d*sig1^2d))
+
+      ; ...and also the low-resolution binned version from which chi^2
+      ; was calculated
+      chisq = fitrayleigh(fit,model_excess=model_excess)
+    endelse
+
+    ; note that all_r refers to low-resolution pixel edges. For
+    ; example, if the first range is from 0 to 1, it really contains
+    ; sources that land within a box from -0.5 to +0.5 centered over
+    ; the primary position. Similarly, the next "annulus" defined as 1
+    ; to 2 is really radii 0.5 to 1.5. We defined r_cen earlier so
+    ; that it lies at the centres of these shifted bins, i.e. 0, 1,
+    ; 2...
 
     if keyword_set(showplot) then begin
        IF ~postscript THEN window,3
-      plot, all_rcen, excess, psym=5, xtitle='Search Radius (arcsec)', $
+      plot, all_rcen, excess, psym=5, $
+            xtitle='Search Radius (arcsec)', $
             ytitle='Excess / bin', xstyle=1, xrange=[0,rmax], $
             charsize=1.5
       errplot, all_rcen, excess-excess_err, excess+excess_err
       oplot,[0,rmax],[0,0]
-      oplot, r_highres, pdf*scale
-      oplot, all_rcen, model_excess, psym=10
 
-      modelstr = '!4'+greek_sigma+'!3!Dr!n='+string(sigma_r,format='(F4.1)')
-      modelstr = modelstr+' E='+string(avmatch,format='(F3.1)')+ $
+      oplot, r_highres, pdf*all_dr[0] ; account for bin size
+      oplot_hist, all_r-pixres/2., model_excess
+
+      modelstr = '!4'+greek_sigma+'!3!D1!n='+string(sig1,format='(F4.1)') + $
+                 ' E!d1!n='+string(e1,format='(F3.1)')
+      if keyword_set(rayleigh2) then $
+        modelstr = modelstr +  ' !4'+greek_sigma+'!3!D2!n='+ $
+                   string(sig2,format='(F4.1)') + $
+                   ' E!d2!n='+string(e2,format='(F3.1)')
+
+      modelstr = modelstr + $
                  ' !4'+greek_chi+'!3!u2!N='+string(chisq,format='(F4.1)')
 
-      xyouts, 0.6, 0.85, modelstr, charsize=1.5, charthick=!p.thick, /normal
+      xyouts, 0.4, 0.85, modelstr, charsize=1.5, charthick=!p.thick, /normal
     endif
 
     ; now calculate the cumulative distribution
-    cumexcess = dblarr(nr)      ; cumulative dist
-    cumexcess_err = dblarr(nr)  ; cumulative error
-    cumr = all_r[1:nr]          ; radii corresponding to cumexcess
+    cumexcess = dblarr(nr)      ; binned cumulative dist
+    cumexcess_err = dblarr(nr)  ; binned cumulative error
+    cumexcess_model = dblarr(nr); forward-modeled binned cumulative dist
+    cumr = all_r[1:nr]-pixres/2.; radii corresponding to cumexcess
 
     for i=0, nr-1 do begin
       ; calculate n_full and n_clipped for circles centered over primary
@@ -593,6 +706,9 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
       cumexcess_err[i] = (counts_cum_err + expect_cum_err) / $
                          (counts_cum - expect_cum )    ; relative error
       cumexcess_err[i] = cumexcess_err[i]*cumexcess[i] ; absolute error
+
+      ; the chunky forward-model cumulative excess
+      cumexcess_model[i] = total(model_excess[0:i])
     endfor
 
     ; identify a maximum search radius from the cumulative counts that
@@ -613,18 +729,23 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
     cum_highres = pdf*0
     cumr_highres = r_highres - (r_highres[1]/2.)
     for i=0, n_elements(cum_highres)-1 do $
-      cum_highres[i] = total( avmatch*pdf[0:i] )
+      cum_highres[i] = total( pdf[0:i] )
 
+    ; account for bin size
     cum_highres = cum_highres * (r_highres[1]-r_highres[0])
 
     if keyword_set(showplot) then begin
       IF ~postscript THEN window, 4
-      plot, cumr, cumexcess, psym=5, xtitle='Search Radius (arcsec)', $
+      plot, [0], [0], xtitle='Search Radius (arcsec)', $
             ytitle='Cumulative Excess (<R)', charsize=1.5, $
-            xrange=[0,rmax], xstyle=1
+            xrange=[0,rmax], xstyle=1, yrange=[0,max(cumexcess)]
 
+      oplot, cumr, cumexcess, psym=5
       errplot, cumr, cumexcess-cumexcess_err, cumexcess+cumexcess_err
+
       oplot, cumr_highres, cum_highres
+      oplot_hist, all_r, cumexcess_model
+
     endif
 
     ; identify search radius in cumulative counts that maximizes SNR of
@@ -645,6 +766,10 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
     MESSAGE,"Skipping measurement of radial offset distribution...",$
             /INFORMATIONAL
   endelse
+
+  ; Work out avmatch
+  if keyword_set(rayleigh2) then avmatch = e1 + e2 $
+  else avmatch = e1
 
   ; use externally supplied rprior
   if keyword_set( rprior ) then begin
