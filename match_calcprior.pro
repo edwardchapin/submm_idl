@@ -616,8 +616,10 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
       avmatch = e1 + e2
 
       ; high-res PDF
-      pdf = e1*(r_highres/sig1^2d)*exp(-r_highres^2d/(2d*sig1^2d)) + $
-            e2*(r_highres/sig2^2d)*exp(-r_highres^2d/(2d*sig2^2d))
+      pdf1 = e1*(r_highres/sig1^2d)*exp(-r_highres^2d/(2d*sig1^2d))
+      pdf2 = e2*(r_highres/sig2^2d)*exp(-r_highres^2d/(2d*sig2^2d))
+
+      pdf = pdf1 + pdf2
 
       ; low-res
       chisq = fitrayleigh2(fit,model_excess=model_excess)
@@ -666,7 +668,13 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
       oplot,[0,rmax],[0,0]
 
       oplot, r_highres, pdf*all_dr[0] ; account for bin size
+      if keyword_set(rayleigh2) then begin
+        oplot, r_highres, pdf1*all_dr[0], linestyle=1
+        oplot, r_highres, pdf2*all_dr[0], linestyle=1
+      endif
+
       oplot_hist, all_r-pixres/2., model_excess
+
 
       modelstr = '!4'+greek_sigma+'!3!D1!n='+string(sig1,format='(F4.1)') + $
                  ' E!d1!n='+string(e1,format='(F3.1)')
