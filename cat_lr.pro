@@ -19,12 +19,18 @@
 ;   m_dec      =  "         "     "          Dec's "   "
 ;   sr         = maximum search radius (arcsec)
 ;   maxmatch   = maximum number of matches per source
-;   sigma      = sigma for positional uncertainties (arcsec)
+;   sig1       = sigma for positional uncertainties (arcsec)
 ;   properties = flux density, colour etc. (N cat entries x M properties)
 ;   q          = prior match dist of M properties. (M axes of lengths dims)
 ;   bdist      = prior background dist of M properties (M axes of lengths dims)
 ;   dims       = length of each  of the M dimensions
 ;   bins       = M x 2: bin_min, dbin for each dimension
+;
+; Optional Keywork Inputs:
+;   sig2       = sigma for second component if rayleigh2 set
+;   e1         = integral of first rayleigh component if rayleigh2 set
+;   e2         = "           second   "        "             "
+;   rayleigh2  = if set, radial uncertainty consists of 2 rayleigh components
 ;
 ; Optional Keyword Outputs:
 ;
@@ -40,11 +46,13 @@
 ;   29MAY2009: Initial version (EC)
 ;   02MAY2011: added a comment (MZ)
 ;   04MAY2011: Switch to using degrees for RA (EC)
+;   29SEP2011: Add rayleigh2 (EC)
 ;
 ;------------------------------------------------------------------------------
 
-pro cat_lr, p_ra, p_dec, m_ra, m_dec, sr, maxmatch, sigma, $
-            properties, q, bdist, dims, bins, matches=matches
+pro cat_lr, p_ra, p_dec, m_ra, m_dec, sr, maxmatch, sig1, $
+            properties, q, bdist, dims, bins, matches=matches, $
+            sig2=sig2, e1=e1, e2=e2, rayleigh2=rayleigh2
 
   ; dimensions of arrays
   n = n_elements(p_ra)          ; number of objects to find counterparts for
@@ -71,6 +79,9 @@ pro cat_lr, p_ra, p_dec, m_ra, m_dec, sr, maxmatch, sigma, $
     if ind[0] ne -1 then begin
       nmatch = n_elements(ind)
 
+      ; the radial offsets
+      r = d[ind]
+
       if  nmatch gt maxmatch then begin
         print, "cat_lr: Error, found", nmatch," matches, > ", maxmatch
         stop
@@ -96,11 +107,27 @@ pro cat_lr, p_ra, p_dec, m_ra, m_dec, sr, maxmatch, sigma, $
           dimlen = dimlen * dims[k]
         endfor
 
-        lr = q[whichi]*exp( -d[ind[j]]^2d/(2d*sigma^2d) ) / $
-             (2d*!DPI*sigma^2d*bdist[whichi])
+        ; work out the radial probability density. Note that this
+        ; really is a probability rather than number density. The
+        ; number of matches is the integral over q (and should equal
+        ; e1+e2).
+
+        if keyword_set(rayleigh2) then begin
+          ; 2-component distribution
+
+          f_r = e1*(r[j]/sig1^2d)*exp(-r[j]^2d/(2d*sig1^2d)) + $
+                e2*(r[j]/sig2^2d)*exp(-r[j]^2d/(2d*sig2^2d))
+          f_r = f_r / (e1+e2)
+        endif else begin
+          ; 1-component distribution
+
+          f_r = (r[j]/sig1^2d)*exp(-r[j]^2d/(2d*sig1^2d))
+        endelse
+
+        lr = q[whichi]*f_r / (2d*!DPI*r[j]*bdist[whichi])
 
         matches[i,j,0] = ind[j]     ; index of source
-        matches[i,j,1] = d[ind[j]]  ; distance to source
+        matches[i,j,1] = r[j]       ; distance to source
         matches[i,j,2] = lr         ; likelihood ratio
       endfor
 
