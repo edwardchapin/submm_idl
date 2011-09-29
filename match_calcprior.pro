@@ -93,8 +93,8 @@
 ;------------------------------------------------------------------------------
 
 function fitrayleigh, m, model_excess=model_excess
-common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
-  dist_lowres, dist_highres, dist_res_lookup
+common fitrayleigh_block, all_r, all_rcen, excess, excess_err,$
+   dist_lowres, dist_highres, dist_res_lookup
 
 e1 = m[0]
 sig1 = m[1]
@@ -421,22 +421,24 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
   bgmask[bg] = 1
 
   if keyword_set(showplot) then begin
+     LOADCT,0
      IF ~postscript THEN BEGIN
         set_plot,'x'
         window, 0
-     ENDIF
-    tvscale, bgmask, /keep, /noint
-    xyouts, 0.02, 0.95, 'Background Mask', charsize=1.5, charthick=3.0, $
-            /normal, color=255
-    xyouts, 0.02, 0.95, 'Background Mask', charsize=1.5, /normal
+        erase = 0
+     ENDIF ELSE BEGIN
+        erase = 1
+     ENDELSE
+    tvscale, bgmask, /keep, /noint, ERASE=erase, BACKGROUND='white'
+    xyouts, 0.93, 0.5, 'Background Mask', charsize=1.5, charthick=3.0, $
+            /normal, color=255,ORIENTATION=90
+    xyouts, 0.04, 0.5, 'Background Mask', charsize=1.5, /normal,ORIENTATION=90
 
-    IF ~postscript THEN BEGIN
-       window, 1
-    ENDIF
-    tvscale, fgmask, /keep, /noint
-    xyouts, 0.02, 0.95, 'Foreground Mask', charsize=1.5, charthick=3.0, $
-            /normal, color=255
-    xyouts, 0.02, 0.95, 'Foreground Mask', charsize=1.5, /normal
+    IF ~postscript THEN window,1
+    tvscale, fgmask, /keep, /noint, ERASE=erase, BACKGROUND='white'
+    xyouts, 0.93, 0.5, 'Foreground Mask', charsize=1.5, charthick=3.0, $
+            /normal, color=255,ORIENTATION=90
+    xyouts, 0.04, 0.5, 'Foreground Mask', charsize=1.5, /normal,ORIENTATION=90
   endif
 
   ; calculate area and surface density + Poisson error, of sources in bg mask
@@ -541,12 +543,11 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
       all_n_clipped[i] = n_clipped ; equivalents later
 
       if keyword_set(showplot) then begin
-        tvscale, amask, /keep, /noint
-        xyouts, 0.02, 0.95, 'FG Masked Measurement Annuli', charsize=1.5, $
-                charthick=3.0, $
-                /normal, color=255
-        xyouts, 0.02, 0.95, 'FG Masked Measurement Annuli', charsize=1.5, $
-                /normal
+        tvscale, amask, /keep, /noint, ERASE=erase, BACKGROUND='white'
+        xyouts, 0.93, 0.5, 'FG Masked Measurement Annuli', charsize=1.5, $
+                charthick=3.0, /normal, color=255,ORIENTATION=90
+        xyouts, 0.04, 0.5, 'FG Masked Measurement Annuli', charsize=1.5, $
+                /normal,ORIENTATION=90
       endif
 
       ; count matching sources in annulus mask
@@ -759,12 +760,14 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
       IF verbose THEN MESSAGE,errmsg
       RETURN
     endif
-    MESSAGE, "Best SNR at search radius of " + $
-             string(all_rcen[maxind],format='(F5.1)') + " arcsec",$
-             /INFORMATIONAL
+    IF verbose THEN MESSAGE, "Best SNR at search radius of " + $
+                             string(all_rcen[maxind],format='(F5.1)') + $
+                             " arcsec",$
+                             /INFORMATIONAL
   endif else begin
-    MESSAGE,"Skipping measurement of radial offset distribution...",$
-            /INFORMATIONAL
+    IF verbose THEN MESSAGE,$
+       "Skipping measurement of radial offset distribution...",$
+       /INFORMATIONAL
   endelse
 
   ; Work out avmatch
@@ -781,10 +784,11 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
       RETURN
     endif
 
-    MESSAGE,"Will measure priors based on supplied properties using " + $
-            "search radius of "+ $
-            string(all_rcen[maxind],format='(F5.1)') + " arcsec",$
-            /INFORMATIONAL
+    IF verbose THEN MESSAGE,$
+       "Will measure priors based on supplied properties using " + $
+       "search radius of "+ $
+       string(all_rcen[maxind],format='(F5.1)') + " arcsec",$
+       /INFORMATIONAL
   endif
 
   ; If properties supplied, work out other priors at best SNR radius
@@ -819,10 +823,10 @@ common fitrayleigh_block, all_r, all_rcen, excess, excess_err, $
 
     if keyword_set(showplot) then begin
       IF ~postscript THEN window, 5
-      tvscale, pmask, /keep, /noint
-      xyouts, 0.02, 0.95, 'Prior Mask', charsize=1.5, charthick=3.0, $
-              /normal, color=255
-      xyouts, 0.02, 0.95, 'Prior Mask', charsize=1.5, /normal
+      tvscale, pmask, /keep, /noint, ERASE=erase, BACKGROUND='white'
+      xyouts, 0.93, 0.5, 'Prior Mask', charsize=1.5, charthick=3.0, $
+              /normal, color=255,ORIENTATION=90
+      xyouts, 0.04, 0.5, 'Prior Mask', charsize=1.5, /normal,ORIENTATION=90
     endif
 
     ; set up arrays for storing the 1d marginalized prior probabilities
