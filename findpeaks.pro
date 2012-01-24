@@ -41,6 +41,7 @@
 ;
 ;   06MAY2011: Initial committed version (EC)
 ;   22AUG2011: Added cntrd/cenx/ceny/cenra/cendec (EC)
+;   24JAN2012: Don't return list if nothing above threshold (EC)
 ;
 ;------------------------------------------------------------------------------
 
@@ -87,6 +88,7 @@ pro findpeaks, map, x, y, z, mindist=mindist, thresh=thresh, header=header, $
   endif
 
   z = map[x,y]
+  havesrc = 1
 
   ; threshold the sources
   if keyword_set(thresh) then begin
@@ -95,12 +97,15 @@ pro findpeaks, map, x, y, z, mindist=mindist, thresh=thresh, header=header, $
       x = x[ind]
       y = y[ind]
       z = z[ind]
-    endif
+    endif else begin
+      delvarx, x, y, z
+      havesrc = 0
+    endelse
   endif
 
   ; multiple source rejection
 
-  if keyword_set(mindist) then begin
+  if keyword_set(mindist) and havesrc then begin
     print, "Rejecting multiple nearby sources..."
 
     goodflag = intarr(n_elements(x))+1
@@ -135,14 +140,14 @@ pro findpeaks, map, x, y, z, mindist=mindist, thresh=thresh, header=header, $
 
   ; calculate RA and Dec for each source
 
-  if keyword_set(header) then begin
+  if keyword_set(header) and havesrc then begin
     cat_pix, ra, dec, x, y, header, /pix2cat
   endif
 
   ; refine positions by fitting a Gaussian, fit to the supplied
   ; PSF, to the vicinity of each identified peak
 
-  if keyword_set(cntrd) then begin
+  if keyword_set(cntrd) and havesrc then begin
 
     print, "Calculating sub-pixel peak locations..."
 
